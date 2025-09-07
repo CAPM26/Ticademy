@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "772330927178",
+    "project_id": "ticademy-6d2dc",
+    "storage_bucket": "ticademy-6d2dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:772330927178:android:cdc9b7e0ed0e4f1620a2b3",
+        "android_client_info": {
+          "package_name": "com.example.ticademy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9MBc3Filiyle4Jpuck6psGLIkX253p1c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
