@@ -18,7 +18,7 @@ class AuthLayout extends StatelessWidget {
       valueListenable: authService,
       builder: (context, authService, child) {
         return StreamBuilder(
-          stream: authService?.authStateChanges,
+          stream: authService.authStateChanges,
           builder: (context, snapshot) {
             Widget widget;
             print('AuthLayout: connectionState=${snapshot.connectionState}, hasData=${snapshot.hasData}, data=${snapshot.data}');
