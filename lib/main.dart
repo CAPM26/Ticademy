@@ -1,13 +1,20 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:ticademy/friends_page.dart';
 import 'firebase_options.dart';
 import './login_page.dart';
 import './register_page.dart';
+import './app_index_page.dart';
 import './welcome_page.dart';
+import 'module_page.dart';
+import 'user_profile_page.dart';
+import 'package:ticademy/presence_service.dart';
+import 'package:ticademy/collaborators_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await PresenceService.instance.start();
   runApp(const MyApp());
 }
 
@@ -25,11 +32,15 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
+        UserProfilePage.routeName: (context) => const UserProfilePage(),
         '/': (context) => const WelcomePage(),
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
+        '/app': (context) => const AppIndexPage(),
+        '/friends': (context) => const FriendsPage(),
+        '/module': (context) => const ModulePage(),
+        CollaboratorsPage.routeName: (_) => const CollaboratorsPage(),
       },
     );
   }
 }
-

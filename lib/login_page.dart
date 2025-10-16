@@ -196,15 +196,17 @@ class _LoginPageState extends State<LoginPage> {
                               Icons.mail_outline,
                             ),
                             keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            textCapitalization: TextCapitalization.none,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Ingresa tu correo';
                               }
-                              if (!RegExp(
-                                r'^[^@]+@[^@]+\\.[^@]+',
-                              ).hasMatch(value)) {
-                                return 'Correo invalido';
-                              }
+                              final ok = RegExp(
+                                r'^[^@]+@[^@]+\.[^@]+$',
+                              ).hasMatch(value.trim());
+                              if (!ok) return 'Correo inválido';
                               return null;
                             },
                           ),
@@ -217,17 +219,16 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             obscureText: true,
                             validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Ingresa tu contrasena';
+                              final v = (value ?? '').trim();
+                              if (v.isEmpty) return 'Ingresa tu contraseña';
+                              if (v.length < 7) {
+                                return 'Debe tener al menos 7 caracteres';
                               }
-                              if (value.length < 8) {
-                                return 'Debe tener al menos 8 caracteres';
+                              if (!RegExp(r'[A-Z]').hasMatch(v)) {
+                                return 'Incluye al menos una mayúscula';
                               }
-                              if (!RegExp(r'[A-Z]').hasMatch(value)) {
-                                return 'Incluye al menos una mayuscula';
-                              }
-                              if (!RegExp(r'[a-z]').hasMatch(value)) {
-                                return 'Incluye al menos una minuscula';
+                              if (!RegExp(r'[a-z]').hasMatch(v)) {
+                                return 'Incluye al menos una minúscula';
                               }
                               return null;
                             },

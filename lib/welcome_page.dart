@@ -1,6 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:ticademy/app_index_page.dart';
-import 'package:ticademy/widgets/google_sign_in_button.dart';
+import 'package:ticademy/auth_service.dart';
+import 'package:ticademy/presence_service.dart'; // usamos tu servicio
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -22,20 +24,28 @@ class _WelcomePageState extends State<WelcomePage>
       duration: const Duration(milliseconds: 900),
       vsync: this,
     );
-
     _fadeAnimation = CurvedAnimation(
       parent: _controller,
       curve: Curves.easeOut,
     );
-
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.12),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-
     _controller.forward();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // 🔐 Limpieza defensiva del estado del SDK de Google para evitar
+      // reautenticación automática con la cuenta previa.
+      try {
+        final g = GoogleSignIn();
+        if (await g.isSignedIn()) {
+          await g.disconnect().catchError((_) {});
+          await g.signOut().catchError((_) {});
+        }
+      } catch (_) {}
+
+      // Precarga de imágenes
       precacheImage(
         const AssetImage('assets/images/logos/Ticademy_Logo.png'),
         context,
@@ -87,11 +97,11 @@ class _WelcomePageState extends State<WelcomePage>
   }
 
   Widget _buildGoogleButton() {
-    return GoogleSignInButton(
+    return _GoogleSignInButton(
       onSignedIn: (_) {
         if (!mounted) return;
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => AppIndexPage()),
+          MaterialPageRoute(builder: (_) => const AppIndexPage()),
           (route) => false,
         );
       },
@@ -280,6 +290,79 @@ class _TicademyGlyph extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Botón local para iniciar sesión con Google usando tu AuthService.
+/// Elimina la dependencia a `widgets/google_sign_in_button.dart`.
+class _GoogleSignInButton extends StatefulWidget {
+  const _GoogleSignInButton({required this.onSignedIn});
+  final void Function(Object /*UserCredential*/ cred) onSignedIn;
+
+  @override
+  State<_GoogleSignInButton> createState() => _GoogleSignInButtonState();
+}
+
+class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
+  bool _loading = false;
+
+  Future<void> _handleGoogle() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      // Asegura que no se reusa sesión previa (ya lo hace el servicio también)
+      // dentro de _handleGoogle()
+      final cred = await authService.value.signInWithGoogle();
+      // Marca online inmediatamente
+      await PresenceService.instance.setOnlineAndBind();
+      if (!mounted) return;
+      widget.onSignedIn(cred);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _loading ? null : _handleGoogle,
+        icon: _loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : Image.asset(
+                'assets/images/iconos/google_icon.png',
+                width: 32,
+                height: 32,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.login, color: Colors.white, size: 20),
+              ),
+        label: Text(_loading ? 'Conectando...' : 'Ingresar con Google'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFFFFFFF),
+          foregroundColor: Colors.black,
+          minimumSize: const Size.fromHeight(58),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(29),
+          ),
+          textStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          elevation: 0,
+        ),
       ),
     );
   }
