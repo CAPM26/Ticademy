@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:ticademy/auth_service.dart';
 
 class CollaboratorsPage extends StatefulWidget {
   const CollaboratorsPage({super.key});
@@ -14,9 +15,26 @@ class CollaboratorsPage extends StatefulWidget {
 }
 
 class _CollaboratorsPageState extends State<CollaboratorsPage>
-    with SingleTickerProviderStateMixin {
+  with SingleTickerProviderStateMixin {
   final _db = FirebaseDatabase.instance;
   final _auth = FirebaseAuth.instance;
+
+    Future<void> _logout() async {
+    try {
+      await _auth.signOut();
+      if (!mounted) return;
+      // Redirige a tu pantalla de login / landing y limpia el stack
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/', // TODO: cambia por tu ruta de login, p.ej. LoginPage.routeName
+        (route) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo cerrar sesión: $e')));
+    }
+  }
 
   bool _checking = true;
   bool _allowed = false;
@@ -47,7 +65,7 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
     final a = raw.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_]'), '_');
     final b = a.replaceAll(RegExp(r'__+'), '_');
     return b.replaceAll(RegExp(r'^_+|_+$'), '');
-    }
+  }
 
   Future<void> _checkRole() async {
     try {
@@ -96,8 +114,9 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
         _activeModuleId = null;
         _activeSectionId = null;
       } else {
-        _activeModuleId =
-            (preferId != null && data.containsKey(preferId)) ? preferId : sortedIds.first;
+        _activeModuleId = (preferId != null && data.containsKey(preferId))
+            ? preferId
+            : sortedIds.first;
         // cuando cambie módulo, limpia selección de sección para quizz
         _activeSectionId = null;
       }
@@ -142,7 +161,7 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
             color: Colors.black.withOpacity(.05),
             blurRadius: 18,
             offset: const Offset(0, 12),
-          )
+          ),
         ],
       ),
       padding: const EdgeInsets.all(14),
@@ -156,18 +175,14 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
   Widget build(BuildContext context) {
     if (_checking) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Colaboradores'),
-        ),
+        appBar: AppBar(title: const Text('Colaboradores')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     if (!_allowed) {
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Colaboradores'),
-        ),
+        appBar: AppBar(title: const Text('Colaboradores')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(18),
@@ -197,6 +212,13 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
               ),
             ],
           ),
+          actions: [
+            IconButton(
+              tooltip: 'Cerrar sesión',
+              icon: const Icon(Icons.logout),
+              onPressed: _logout,
+            ),
+          ],
           bottom: const TabBar(
             isScrollable: true,
             tabs: [
@@ -226,12 +248,20 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
         return ao.compareTo(bo);
       });
 
-    final m = _activeModuleId != null ? (_modules[_activeModuleId!] as Map?)?.cast<String, dynamic>() ?? {} : {};
+    final m = _activeModuleId != null
+        ? (_modules[_activeModuleId!] as Map?)?.cast<String, dynamic>() ?? {}
+        : {};
 
     final titleCtl = TextEditingController(text: (m['title'] ?? '').toString());
-    final descCtl = TextEditingController(text: (m['description'] ?? '').toString());
-    final hoursCtl = TextEditingController(text: ((m['estimatedHours'] ?? 0).toString()));
-    final orderCtl = TextEditingController(text: ((m['order'] ?? 1).toString()));
+    final descCtl = TextEditingController(
+      text: (m['description'] ?? '').toString(),
+    );
+    final hoursCtl = TextEditingController(
+      text: ((m['estimatedHours'] ?? 0).toString()),
+    );
+    final orderCtl = TextEditingController(
+      text: ((m['order'] ?? 1).toString()),
+    );
 
     String level = (m['level'] ?? 'basico').toString();
     String status = (m['module_status'] ?? 'borrador').toString();
@@ -247,13 +277,22 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Módulo', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                const Text(
+                  'Módulo',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
-                  value: _activeModuleId != null && ids.contains(_activeModuleId) ? _activeModuleId : (ids.isEmpty ? null : ids.first),
+                  value:
+                      _activeModuleId != null && ids.contains(_activeModuleId)
+                      ? _activeModuleId
+                      : (ids.isEmpty ? null : ids.first),
                   items: [
                     for (final id in ids)
-                      DropdownMenuItem(value: id, child: Text(_modules[id]?['title']?.toString() ?? id)),
+                      DropdownMenuItem(
+                        value: id,
+                        child: Text(_modules[id]?['title']?.toString() ?? id),
+                      ),
                   ],
                   decoration: const InputDecoration(
                     labelText: 'Seleccionar módulo',
@@ -278,12 +317,21 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                     if (_activeModuleId != null)
                       OutlinedButton.icon(
                         onPressed: () async {
-                          final confirm = await _confirm(context, '¿Eliminar módulo "$_activeModuleId" y su contenido?');
+                          final confirm = await _confirm(
+                            context,
+                            '¿Eliminar módulo "$_activeModuleId" y su contenido?',
+                          );
                           if (confirm) {
-                            await _db.ref('learningModules/$_activeModuleId').remove();
+                            await _db
+                                .ref('learningModules/$_activeModuleId')
+                                .remove();
                             await _loadModules();
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Módulo eliminado')));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Módulo eliminado'),
+                                ),
+                              );
                             }
                           }
                         },
@@ -300,16 +348,20 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Datos del módulo', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-                const SizedBox(height: 10),
-                if (_activeModuleId != null) Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _badge('ID: $_activeModuleId'),
-                    _badge('Estado: ${status.isEmpty ? '-' : status}'),
-                  ],
+                const Text(
+                  'Datos del módulo',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                 ),
+                const SizedBox(height: 10),
+                if (_activeModuleId != null)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _badge('ID: $_activeModuleId'),
+                      _badge('Estado: ${status.isEmpty ? '-' : status}'),
+                    ],
+                  ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: titleCtl,
@@ -320,6 +372,7 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                 ),
                 const SizedBox(height: 10),
                 TextField(
+                  maxLines: 3,
                   controller: descCtl,
                   decoration: const InputDecoration(
                     labelText: 'Descripción',
@@ -330,15 +383,28 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                 Row(
                   children: [
                     Expanded(
+                      flex: 2,
                       child: DropdownButtonFormField<String>(
                         value: level,
                         items: const [
-                          DropdownMenuItem(value: 'basico', child: Text('Básico')),
-                          DropdownMenuItem(value: 'intermedio', child: Text('Intermedio')),
-                          DropdownMenuItem(value: 'avanzado', child: Text('Avanzado')),
+                          DropdownMenuItem(
+                            value: 'basico',
+                            child: Text('Básico'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'intermedio',
+                            child: Text('Intermedio'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'avanzado',
+                            child: Text('Avanzado'),
+                          ),
                         ],
                         onChanged: (v) => level = v ?? 'basico',
-                        decoration: const InputDecoration(labelText: 'Nivel', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                          labelText: 'Nivel',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -346,7 +412,41 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                       child: TextField(
                         controller: hoursCtl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Horas estimadas', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                          labelText: 'Horas estimadas',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const SizedBox(height: 10),
+                    Expanded(
+                      flex: 2,
+                      child: DropdownButtonFormField<String>(
+                        value: status,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'borrador',
+                            child: Text('borrador'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'publicado',
+                            child: Text('publicado'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'archivado',
+                            child: Text('archivado'),
+                          ),
+                        ],
+                        onChanged: (v) => status = v ?? 'borrador',
+                        decoration: const InputDecoration(
+                          labelText: 'Estado del módulo',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -354,21 +454,13 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                       child: TextField(
                         controller: orderCtl,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Orden', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(
+                          labelText: 'Orden',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  value: status,
-                  items: const [
-                    DropdownMenuItem(value: 'borrador', child: Text('borrador')),
-                    DropdownMenuItem(value: 'publicado', child: Text('publicado')),
-                    DropdownMenuItem(value: 'archivado', child: Text('archivado')),
-                  ],
-                  onChanged: (v) => status = v ?? 'borrador',
-                  decoration: const InputDecoration(labelText: 'Estado del módulo', border: OutlineInputBorder()),
                 ),
                 const SizedBox(height: 10),
                 Align(
@@ -381,15 +473,22 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                               'title': titleCtl.text.trim(),
                               'description': descCtl.text.trim(),
                               'level': level,
-                              'estimatedHours': int.tryParse(hoursCtl.text.trim()) ?? 0,
+                              'estimatedHours':
+                                  int.tryParse(hoursCtl.text.trim()) ?? 0,
                               'order': int.tryParse(orderCtl.text.trim()) ?? 1,
                               'module_status': status,
                               'updatedAt': ServerValue.timestamp,
                             };
-                            await _db.ref('learningModules/$_activeModuleId').update(payload);
+                            await _db
+                                .ref('learningModules/$_activeModuleId')
+                                .update(payload);
                             await _loadModules(preferId: _activeModuleId);
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Módulo guardado')));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Módulo guardado'),
+                                ),
+                              );
                             }
                           },
                     icon: const Icon(Icons.save_outlined),
@@ -405,17 +504,25 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
               tags: tags,
               onAdd: (tag) async {
                 if (_activeModuleId == null) return;
-                final current = _objectToArray(_modules[_activeModuleId!]?['tags']);
+                final current = _objectToArray(
+                  _modules[_activeModuleId!]?['tags'],
+                );
                 if (current.contains(tag)) return;
                 final next = _arrayToObject([...current, tag], 'tag');
-                await _db.ref('learningModules/$_activeModuleId/tags').set(next);
+                await _db
+                    .ref('learningModules/$_activeModuleId/tags')
+                    .set(next);
                 await _loadModules(preferId: _activeModuleId);
               },
               onRemove: (tag) async {
                 if (_activeModuleId == null) return;
-                final current = _objectToArray(_modules[_activeModuleId!]?['tags'])..remove(tag);
+                final current = _objectToArray(
+                  _modules[_activeModuleId!]?['tags'],
+                )..remove(tag);
                 final next = _arrayToObject(current, 'tag');
-                await _db.ref('learningModules/$_activeModuleId/tags').set(next);
+                await _db
+                    .ref('learningModules/$_activeModuleId/tags')
+                    .set(next);
                 await _loadModules(preferId: _activeModuleId);
               },
             ),
@@ -426,7 +533,9 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
               onCreate: (id, title, order, level, hours, desc) async {
                 final moduleId = _sanitizeId(id);
                 if (moduleId.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ID inválido')));
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('ID inválido')));
                   return;
                 }
                 final payload = {
@@ -442,7 +551,9 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                 await _db.ref('learningModules/$moduleId').set(payload);
                 await _loadModules(preferId: moduleId);
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Módulo creado')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Módulo creado')),
+                  );
                 }
               },
             ),
@@ -457,11 +568,19 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
     final module = _activeModuleId != null
         ? (_modules[_activeModuleId!] as Map?)?.cast<String, dynamic>() ?? {}
         : {};
-    final sections = (module['sections'] as Map?)?.cast<String, dynamic>() ?? {};
-    final entries = sections.entries
-        .map((e) => MapEntry(e.key, (e.value as Map).cast<String, dynamic>()))
-        .toList()
-      ..sort((a, b) => ((a.value['order'] ?? 0) as num).compareTo((b.value['order'] ?? 0) as num));
+    final sections =
+        (module['sections'] as Map?)?.cast<String, dynamic>() ?? {};
+    final entries =
+        sections.entries
+            .map(
+              (e) => MapEntry(e.key, (e.value as Map).cast<String, dynamic>()),
+            )
+            .toList()
+          ..sort(
+            (a, b) => ((a.value['order'] ?? 0) as num).compareTo(
+              (b.value['order'] ?? 0) as num,
+            ),
+          );
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
@@ -472,12 +591,21 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Secciones del módulo', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                const Text(
+                  'Secciones del módulo',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
                 const SizedBox(height: 8),
                 if (_activeModuleId == null)
-                  const Text('Selecciona o crea un módulo en la primera pestaña.', style: TextStyle(color: Color(0xFF64748B)))
+                  const Text(
+                    'Selecciona o crea un módulo en la primera pestaña.',
+                    style: TextStyle(color: Color(0xFF64748B)),
+                  )
                 else if (entries.isEmpty)
-                  const Text('Este módulo no tiene secciones todavía.', style: TextStyle(color: Color(0xFF64748B)))
+                  const Text(
+                    'Este módulo no tiene secciones todavía.',
+                    style: TextStyle(color: Color(0xFF64748B)),
+                  )
                 else
                   Column(
                     children: [
@@ -513,15 +641,28 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                                   foregroundColor: const Color(0xFFDC2626),
                                 ),
                                 onPressed: () async {
-                                  final ok = await _confirm(context, '¿Eliminar la sección "${e.key}"?');
+                                  final ok = await _confirm(
+                                    context,
+                                    '¿Eliminar la sección "${e.key}"?',
+                                  );
                                   if (!ok) return;
-                                  await _db.ref('learningModules/$_activeModuleId/sections/${e.key}').remove();
+                                  await _db
+                                      .ref(
+                                        'learningModules/$_activeModuleId/sections/${e.key}',
+                                      )
+                                      .remove();
                                   await _db
                                       .ref('learningModules/$_activeModuleId')
-                                      .update({'updatedAt': ServerValue.timestamp});
+                                      .update({
+                                        'updatedAt': ServerValue.timestamp,
+                                      });
                                   await _loadModules(preferId: _activeModuleId);
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sección eliminada')));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Sección eliminada'),
+                                      ),
+                                    );
                                   }
                                 },
                                 child: const Text('Eliminar'),
@@ -548,7 +689,10 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
     );
   }
 
-  Future<void> _openSectionEditor(BuildContext context, String? sectionId) async {
+  Future<void> _openSectionEditor(
+    BuildContext context,
+    String? sectionId,
+  ) async {
     // Navega a un editor en pantalla completa (bottom sheet o page).
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -578,7 +722,9 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
       );
     }
     final sections =
-        ((_modules[_activeModuleId!]?['sections'] as Map?)?.cast<String, dynamic>()) ?? {};
+        ((_modules[_activeModuleId!]?['sections'] as Map?)
+            ?.cast<String, dynamic>()) ??
+        {};
     final secIds = sections.keys.toList()
       ..sort((a, b) {
         final ao = (sections[a]?['order'] ?? 0) as num;
@@ -587,7 +733,8 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
       });
 
     // si no hay selección, elige la primera para facilitar
-    final selSecId = _activeSectionId ?? (secIds.isNotEmpty ? secIds.first : null);
+    final selSecId =
+        _activeSectionId ?? (secIds.isNotEmpty ? secIds.first : null);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
@@ -598,10 +745,16 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Quizz de la sección', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                const Text(
+                  'Quizz de la sección',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
                 const SizedBox(height: 8),
                 if (secIds.isEmpty)
-                  const Text('Este módulo no tiene secciones.', style: TextStyle(color: Color(0xFF64748B)))
+                  const Text(
+                    'Este módulo no tiene secciones.',
+                    style: TextStyle(color: Color(0xFF64748B)),
+                  )
                 else
                   DropdownButtonFormField<String>(
                     value: selSecId,
@@ -609,7 +762,9 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                       for (final id in secIds)
                         DropdownMenuItem(
                           value: id,
-                          child: Text('${sections[id]?['title'] ?? id}  (${sections[id]?['contentType'] ?? '-'})'),
+                          child: Text(
+                            '${sections[id]?['title'] ?? id}  (${sections[id]?['contentType'] ?? '-'})',
+                          ),
                         ),
                     ],
                     onChanged: (v) => setState(() => _activeSectionId = v),
@@ -631,7 +786,9 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                 onSaved: () async {
                   await _loadModules(preferId: _activeModuleId);
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Quizz guardado')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Quizz guardado')),
+                    );
                   }
                 },
               ),
@@ -648,8 +805,14 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
         title: const Text('Confirmar'),
         content: Text(msg),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Sí')),
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Sí'),
+          ),
         ],
       ),
     );
@@ -689,14 +852,16 @@ class _ModuleTagsEditorState extends State<_ModuleTagsEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Etiquetas del módulo', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        const Text(
+          'Etiquetas del módulo',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
           runSpacing: 8,
           children: [
-            if (widget.tags.isEmpty)
-              _chipDisabled('Sin etiquetas'),
+            if (widget.tags.isEmpty) _chipDisabled('Sin etiquetas'),
             for (final t in widget.tags)
               _tagChip(t, onRemove: () => widget.onRemove(t)),
           ],
@@ -722,7 +887,7 @@ class _ModuleTagsEditorState extends State<_ModuleTagsEditor> {
                 if (mounted) _tagCtl.clear();
               },
               child: const Text('Agregar'),
-            )
+            ),
           ],
         ),
       ],
@@ -740,7 +905,13 @@ class _ModuleTagsEditorState extends State<_ModuleTagsEditor> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(t, style: const TextStyle(color: Color(0xFF1D2536), fontWeight: FontWeight.w600)),
+          Text(
+            t,
+            style: const TextStyle(
+              color: Color(0xFF1D2536),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(width: 6),
           InkWell(
             onTap: onRemove,
@@ -774,7 +945,8 @@ class _CreateModuleForm extends StatefulWidget {
     String level,
     int hours,
     String desc,
-  ) onCreate;
+  )
+  onCreate;
 
   @override
   State<_CreateModuleForm> createState() => _CreateModuleFormState();
@@ -804,7 +976,10 @@ class _CreateModuleFormState extends State<_CreateModuleForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Crear nuevo módulo', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        const Text(
+          'Crear nuevo módulo',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -818,7 +993,11 @@ class _CreateModuleFormState extends State<_CreateModuleForm> {
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
             Expanded(
               child: TextField(
                 controller: titleCtl,
@@ -834,25 +1013,38 @@ class _CreateModuleFormState extends State<_CreateModuleForm> {
         Row(
           children: [
             Expanded(
-              child: TextField(
-                controller: orderCtl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Orden', border: OutlineInputBorder()),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
+              flex: 2,
               child: ValueListenableBuilder(
                 valueListenable: levelCtl,
                 builder: (_, value, __) => DropdownButtonFormField<String>(
                   value: value,
                   items: const [
                     DropdownMenuItem(value: 'basico', child: Text('Básico')),
-                    DropdownMenuItem(value: 'intermedio', child: Text('Intermedio')),
-                    DropdownMenuItem(value: 'avanzado', child: Text('Avanzado')),
+                    DropdownMenuItem(
+                      value: 'intermedio',
+                      child: Text('Intermedio'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'avanzado',
+                      child: Text('Avanzado'),
+                    ),
                   ],
                   onChanged: (v) => levelCtl.value = v ?? 'basico',
-                  decoration: const InputDecoration(labelText: 'Nivel', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Nivel',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: orderCtl,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Orden',
+                  border: OutlineInputBorder(),
                 ),
               ),
             ),
@@ -861,15 +1053,22 @@ class _CreateModuleFormState extends State<_CreateModuleForm> {
               child: TextField(
                 controller: hoursCtl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Horas', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Horas',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
         TextField(
+          maxLines: 3,
           controller: descCtl,
-          decoration: const InputDecoration(labelText: 'Descripción', border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+            labelText: 'Descripción',
+            border: OutlineInputBorder(),
+          ),
         ),
         const SizedBox(height: 10),
         Align(
@@ -903,7 +1102,10 @@ class _CreateModuleFormState extends State<_CreateModuleForm> {
 
 // --- Launcher del editor de sección ---
 class _SectionEditorLauncher extends StatelessWidget {
-  const _SectionEditorLauncher({required this.hasModule, required this.onCreateNew});
+  const _SectionEditorLauncher({
+    required this.hasModule,
+    required this.onCreateNew,
+  });
   final bool hasModule;
   final VoidCallback onCreateNew;
 
@@ -912,7 +1114,10 @@ class _SectionEditorLauncher extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Nueva / Editar sección', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        const Text(
+          'Nueva / Editar sección',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -987,15 +1192,27 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
   }
 
   Future<void> _load() async {
-    if (widget.sectionId == null) {
-      setState(() => _loading = false);
-      return;
-    }
-    final snap = await _db.ref('learningModules/${widget.moduleId}/sections/${widget.sectionId}').get();
-    if (snap.exists && snap.value is Map) {
-      final s = Map<String, dynamic>.from(snap.value as Map);
+    try {
+      if (widget.sectionId == null) {
+        // nueva sección → sin cargar nada
+        return;
+      }
+
+      final ref = _db.ref(
+        'learningModules/${widget.moduleId}/sections/${widget.sectionId}',
+      );
+      final snap = await ref.get();
+
       _editingId = widget.sectionId;
 
+      if (!snap.exists || snap.value is! Map) {
+        // no hay datos de la sección, igual deja salir del loading y muestra vacío editable
+        return;
+      }
+
+      final s = Map<String, dynamic>.from(snap.value as Map);
+
+      // ---- campos simples (siempre con toString seguro) ----
       titleCtl.text = (s['title'] ?? '').toString();
       objCtl.text = (s['objective'] ?? '').toString();
       bodyCtl.text = (s['body'] ?? '').toString();
@@ -1004,45 +1221,85 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
       orderCtl.text = ((s['order'] ?? 1).toString());
       secStatus = (s['sec_status'] ?? 'borrador').toString();
 
-      // tags
-      secTags.clear();
-      secTags.addAll((s['tags'] is Map) ? s['tags'].values.map((e) => e.toString()) : const Iterable.empty());
+      // ---- colecciones (solo si son Map; si no, listas vacías) ----
+      secTags
+        ..clear()
+        ..addAll(
+          s['tags'] is Map
+              ? (s['tags'] as Map).values.map((e) => e.toString())
+              : const Iterable<String>.empty(),
+        );
 
-      // expected learning
-      expectedLearning.clear();
-      expectedLearning.addAll((s['expectedLearning'] is Map)
-          ? s['expectedLearning'].values.map((e) => e.toString())
-          : const Iterable.empty());
+      expectedLearning
+        ..clear()
+        ..addAll(
+          s['expectedLearning'] is Map
+              ? (s['expectedLearning'] as Map).values.map((e) => e.toString())
+              : const Iterable<String>.empty(),
+        );
 
-      // checklist
-      checklist.clear();
-      checklist.addAll((s['checklist'] is Map) ? s['checklist'].values.map((e) => e.toString()) : const Iterable.empty());
+      checklist
+        ..clear()
+        ..addAll(
+          s['checklist'] is Map
+              ? (s['checklist'] as Map).values.map((e) => e.toString())
+              : const Iterable<String>.empty(),
+        );
 
-      // checkpoints
-      checkpoints.clear();
-      checkpoints.addAll((s['checkpoints'] is Map) ? s['checkpoints'].values.map((e) => e.toString()) : const Iterable.empty());
+      checkpoints
+        ..clear()
+        ..addAll(
+          s['checkpoints'] is Map
+              ? (s['checkpoints'] as Map).values.map((e) => e.toString())
+              : const Iterable<String>.empty(),
+        );
 
-      // actividades
+      // ---- actividades ----
       activities.clear();
       if (s['activities'] is Map) {
         final acts = Map<String, dynamic>.from(s['activities'] as Map);
         final sorted = acts.entries.toList()
           ..sort((a, b) => a.key.compareTo(b.key));
         for (final e in sorted) {
-          final a = Map<String, dynamic>.from(e.value as Map);
+          final a = (e.value is Map)
+              ? Map<String, dynamic>.from(e.value as Map)
+              : <String, dynamic>{};
           final steps = (a['steps'] is Map)
-              ? List<String>.from(a['steps'].values.map((x) => x.toString()))
+              ? ((a['steps'] as Map).entries.toList()
+                      ..sort((x, y) => x.key.compareTo(y.key)))
+                    .map((x) => x.value.toString())
+                    .toList()
               : <String>[];
-          activities.add(_ActivityModel(title: (a['title'] ?? 'Actividad').toString(), steps: steps));
+          activities.add(
+            _ActivityModel(
+              title: (a['title'] ?? 'Actividad').toString(),
+              steps: List<String>.from(steps),
+            ),
+          );
         }
       }
 
-      // recurso
-      resType = (s['resources']?['type'] ?? 'pdf').toString();
-      resTitleCtl.text = (s['resources']?['title'] ?? '').toString();
-      resUrlCtl.text = (s['resources']?['url'] ?? '').toString();
+      // ---- recurso único ----
+      final res = s['resources'];
+      if (res is Map) {
+        resType = (res['type'] ?? 'pdf').toString();
+        resTitleCtl.text = (res['title'] ?? '').toString();
+        resUrlCtl.text = (res['url'] ?? '').toString();
+      } else {
+        resType = 'pdf';
+        resTitleCtl.clear();
+        resUrlCtl.clear();
+      }
+    } catch (e) {
+      // Opcional: muestra un aviso, pero no bloquees la UI
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo cargar la sección: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    setState(() => _loading = false);
   }
 
   @override
@@ -1088,11 +1345,18 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
     };
 
     if (secTags.isNotEmpty) payload['tags'] = _toObj(secTags, 'sec_tag');
-    if (expectedLearning.isNotEmpty) payload['expectedLearning'] = _toObj(expectedLearning, 'exp_learn');
-    if (checklist.isNotEmpty) payload['checklist'] = _toObj(checklist, 'chcklst');
-    if (checkpoints.isNotEmpty) payload['checkpoints'] = _toObj(checkpoints, 'chkpnt');
+    if (expectedLearning.isNotEmpty) {
+      payload['expectedLearning'] = _toObj(expectedLearning, 'exp_learn');
+    }
+    if (checklist.isNotEmpty) {
+      payload['checklist'] = _toObj(checklist, 'chcklst');
+    }
+    if (checkpoints.isNotEmpty) {
+      payload['checkpoints'] = _toObj(checkpoints, 'chkpnt');
+    }
 
-    if (resTitleCtl.text.trim().isNotEmpty || resUrlCtl.text.trim().isNotEmpty) {
+    if (resTitleCtl.text.trim().isNotEmpty ||
+        resUrlCtl.text.trim().isNotEmpty) {
       payload['resources'] = {
         'title': resTitleCtl.text.trim(),
         'type': resType,
@@ -1100,11 +1364,15 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
       };
     }
 
-    await _db.ref('learningModules/${widget.moduleId}/sections/$secId').update(payload);
+    await _db
+        .ref('learningModules/${widget.moduleId}/sections/$secId')
+        .update(payload);
     await moduleRef.update({'updatedAt': ServerValue.timestamp});
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sección guardada')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Sección guardada')));
     }
     await widget.onSaved();
     if (mounted) Navigator.pop(context);
@@ -1122,7 +1390,9 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_editingId == null ? 'Nueva sección' : 'Editar sección ($_editingId)'),
+        title: Text(
+          _editingId == null ? 'Nueva sección' : 'Editar sección ($_editingId)',
+        ),
         actions: [
           TextButton(
             onPressed: _loading ? null : _save,
@@ -1144,12 +1414,19 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                       children: [
                         TextField(
                           controller: titleCtl,
-                          decoration: const InputDecoration(labelText: 'Título', border: OutlineInputBorder()),
+                          decoration: const InputDecoration(
+                            labelText: 'Título',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                         const SizedBox(height: 10),
                         TextField(
+                          maxLines: 3,
                           controller: objCtl,
-                          decoration: const InputDecoration(labelText: 'Objetivo', border: OutlineInputBorder()),
+                          decoration: const InputDecoration(
+                            labelText: 'Objetivo',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                         const SizedBox(height: 10),
                         Row(
@@ -1158,13 +1435,30 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                               child: DropdownButtonFormField<String>(
                                 value: contentType,
                                 items: const [
-                                  DropdownMenuItem(value: 'lectura', child: Text('lectura')),
-                                  DropdownMenuItem(value: 'practica', child: Text('practica')),
-                                  DropdownMenuItem(value: 'video', child: Text('video')),
-                                  DropdownMenuItem(value: 'evaluacion', child: Text('evaluacion')),
+                                  DropdownMenuItem(
+                                    value: 'lectura',
+                                    child: Text('lectura'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'practica',
+                                    child: Text('practica'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'video',
+                                    child: Text('video'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'evaluacion',
+                                    child: Text('evaluacion'),
+                                  ),
                                 ],
-                                onChanged: (v) => setState(() => contentType = v ?? 'lectura'),
-                                decoration: const InputDecoration(labelText: 'Tipo de contenido', border: OutlineInputBorder()),
+                                onChanged: (v) => setState(
+                                  () => contentType = v ?? 'lectura',
+                                ),
+                                decoration: const InputDecoration(
+                                  labelText: 'Tipo de contenido',
+                                  border: OutlineInputBorder(),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1172,7 +1466,10 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                               child: TextField(
                                 controller: minutesCtl,
                                 keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(labelText: 'Minutos', border: OutlineInputBorder()),
+                                decoration: const InputDecoration(
+                                  labelText: 'Minutos',
+                                  border: OutlineInputBorder(),
+                                ),
                               ),
                             ),
                           ],
@@ -1184,7 +1481,10 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                               child: TextField(
                                 controller: orderCtl,
                                 keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(labelText: 'Orden', border: OutlineInputBorder()),
+                                decoration: const InputDecoration(
+                                  labelText: 'Orden',
+                                  border: OutlineInputBorder(),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1192,12 +1492,25 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                               child: DropdownButtonFormField<String>(
                                 value: secStatus,
                                 items: const [
-                                  DropdownMenuItem(value: 'borrador', child: Text('borrador')),
-                                  DropdownMenuItem(value: 'publicada', child: Text('publicada')),
-                                  DropdownMenuItem(value: 'archivada', child: Text('archivada')),
+                                  DropdownMenuItem(
+                                    value: 'borrador',
+                                    child: Text('borrador'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'publicada',
+                                    child: Text('publicada'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'archivada',
+                                    child: Text('archivada'),
+                                  ),
                                 ],
-                                onChanged: (v) => setState(() => secStatus = v ?? 'borrador'),
-                                decoration: const InputDecoration(labelText: 'Estado', border: OutlineInputBorder()),
+                                onChanged: (v) =>
+                                    setState(() => secStatus = v ?? 'borrador'),
+                                decoration: const InputDecoration(
+                                  labelText: 'Estado',
+                                  border: OutlineInputBorder(),
+                                ),
                               ),
                             ),
                           ],
@@ -1264,13 +1577,18 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                           _ActivityEditor(
                             key: ValueKey('act_$i'),
                             model: activities[i],
-                            onRemove: () => setState(() => activities.removeAt(i)),
+                            onRemove: () =>
+                                setState(() => activities.removeAt(i)),
                           ),
                         const SizedBox(height: 8),
                         Align(
                           alignment: Alignment.centerLeft,
                           child: OutlinedButton.icon(
-                            onPressed: () => setState(() => activities.add(_ActivityModel(title: 'Actividad', steps: []))),
+                            onPressed: () => setState(
+                              () => activities.add(
+                                _ActivityModel(title: 'Actividad', steps: []),
+                              ),
+                            ),
                             icon: const Icon(Icons.add),
                             label: const Text('Agregar actividad'),
                           ),
@@ -1291,19 +1609,35 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                               child: DropdownButtonFormField<String>(
                                 value: resType,
                                 items: const [
-                                  DropdownMenuItem(value: 'pdf', child: Text('pdf')),
-                                  DropdownMenuItem(value: 'video', child: Text('video')),
-                                  DropdownMenuItem(value: 'enlace', child: Text('enlace')),
+                                  DropdownMenuItem(
+                                    value: 'pdf',
+                                    child: Text('pdf'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'video',
+                                    child: Text('video'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'enlace',
+                                    child: Text('enlace'),
+                                  ),
                                 ],
-                                onChanged: (v) => setState(() => resType = v ?? 'pdf'),
-                                decoration: const InputDecoration(labelText: 'Tipo', border: OutlineInputBorder()),
+                                onChanged: (v) =>
+                                    setState(() => resType = v ?? 'pdf'),
+                                decoration: const InputDecoration(
+                                  labelText: 'Tipo',
+                                  border: OutlineInputBorder(),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: TextField(
                                 controller: resTitleCtl,
-                                decoration: const InputDecoration(labelText: 'Título del recurso', border: OutlineInputBorder()),
+                                decoration: const InputDecoration(
+                                  labelText: 'Título del recurso',
+                                  border: OutlineInputBorder(),
+                                ),
                               ),
                             ),
                           ],
@@ -1311,7 +1645,10 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                         const SizedBox(height: 8),
                         TextField(
                           controller: resUrlCtl,
-                          decoration: const InputDecoration(labelText: 'URL', border: OutlineInputBorder()),
+                          decoration: const InputDecoration(
+                            labelText: 'URL',
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                       ],
                     ),
@@ -1388,12 +1725,12 @@ class _EditableChipsState extends State<_EditableChips> {
           runSpacing: 8,
           children: [
             if (widget.items.isEmpty)
-              const Text('Sin etiquetas', style: TextStyle(color: Color(0xFF64748B))),
-            for (final t in widget.items)
-              Chip(
-                label: Text(t),
-                onDeleted: () => widget.onRemove(t),
+              const Text(
+                'Sin etiquetas',
+                style: TextStyle(color: Color(0xFF64748B)),
               ),
+            for (final t in widget.items)
+              Chip(label: Text(t), onDeleted: () => widget.onRemove(t)),
           ],
         ),
         const SizedBox(height: 8),
@@ -1418,7 +1755,7 @@ class _EditableChipsState extends State<_EditableChips> {
                 setState(() {});
               },
               child: const Text('Agregar'),
-            )
+            ),
           ],
         ),
       ],
@@ -1492,7 +1829,7 @@ class _EditableListState extends State<_EditableList> {
               child: const Text('Agregar'),
             ),
           ],
-        )
+        ),
       ],
     );
   }
@@ -1505,7 +1842,11 @@ class _ActivityModel {
 }
 
 class _ActivityEditor extends StatefulWidget {
-  const _ActivityEditor({super.key, required this.model, required this.onRemove});
+  const _ActivityEditor({
+    super.key,
+    required this.model,
+    required this.onRemove,
+  });
   final _ActivityModel model;
   final VoidCallback onRemove;
 
@@ -1546,13 +1887,19 @@ class _ActivityEditorState extends State<_ActivityEditor> {
                 child: TextField(
                   controller: titleCtl,
                   onChanged: (v) => widget.model.title = v,
-                  decoration: const InputDecoration(labelText: 'Título de la actividad', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Título de la actividad',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               IconButton(
                 onPressed: widget.onRemove,
-                icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626)),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: Color(0xFFDC2626),
+                ),
               ),
             ],
           ),
@@ -1564,7 +1911,9 @@ class _ActivityEditorState extends State<_ActivityEditor> {
                 children: [
                   Expanded(
                     child: TextField(
-                      controller: TextEditingController(text: widget.model.steps[i]),
+                      controller: TextEditingController(
+                        text: widget.model.steps[i],
+                      ),
                       onChanged: (v) => widget.model.steps[i] = v,
                       decoration: InputDecoration(
                         labelText: 'Paso ${i + 1}',
@@ -1574,7 +1923,8 @@ class _ActivityEditorState extends State<_ActivityEditor> {
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    onPressed: () => setState(() => widget.model.steps.removeAt(i)),
+                    onPressed: () =>
+                        setState(() => widget.model.steps.removeAt(i)),
                     icon: const Icon(Icons.delete_outline),
                   ),
                 ],
@@ -1661,15 +2011,23 @@ class _QuizEditorState extends State<_QuizEditor> {
       qs['q${i + 1}'] = questions[i].toMap();
     }
     final payload = {
-      'title': titleCtl.text.trim().isEmpty ? 'Evaluación' : titleCtl.text.trim(),
+      'title': titleCtl.text.trim().isEmpty
+          ? 'Evaluación'
+          : titleCtl.text.trim(),
       'difficulty': difficulty,
       'points': int.tryParse(pointsCtl.text.trim()) ?? 0,
       'timeLimitSeconds': int.tryParse(timeCtl.text.trim()) ?? 0,
       'shuffleOptions': shuffle,
       'questions': qs,
     };
-    await _db.ref('learningModules/${widget.moduleId}/sections/${widget.sectionId}/quizz').set(payload);
-    await _db.ref('learningModules/${widget.moduleId}').update({'updatedAt': ServerValue.timestamp});
+    await _db
+        .ref(
+          'learningModules/${widget.moduleId}/sections/${widget.sectionId}/quizz',
+        )
+        .set(payload);
+    await _db.ref('learningModules/${widget.moduleId}').update({
+      'updatedAt': ServerValue.timestamp,
+    });
     await widget.onSaved();
   }
 
@@ -1680,7 +2038,10 @@ class _QuizEditorState extends State<_QuizEditor> {
       children: [
         TextField(
           controller: titleCtl,
-          decoration: const InputDecoration(labelText: 'Título', border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+            labelText: 'Título',
+            border: OutlineInputBorder(),
+          ),
         ),
         const SizedBox(height: 8),
         Row(
@@ -1694,7 +2055,10 @@ class _QuizEditorState extends State<_QuizEditor> {
                   DropdownMenuItem(value: 'dificil', child: Text('dificil')),
                 ],
                 onChanged: (v) => setState(() => difficulty = v ?? 'facil'),
-                decoration: const InputDecoration(labelText: 'Dificultad', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Dificultad',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -1702,7 +2066,10 @@ class _QuizEditorState extends State<_QuizEditor> {
               child: TextField(
                 controller: pointsCtl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Puntos', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Puntos',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
             const SizedBox(width: 8),
@@ -1710,7 +2077,10 @@ class _QuizEditorState extends State<_QuizEditor> {
               child: TextField(
                 controller: timeCtl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Tiempo (seg)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  labelText: 'Tiempo (seg)',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ),
           ],
@@ -1734,16 +2104,52 @@ class _QuizEditorState extends State<_QuizEditor> {
         const SizedBox(height: 8),
         Row(
           children: [
-            OutlinedButton.icon(
-              onPressed: () => setState(() => questions.add(_QuestionModel(type: 'opcion_multiple'))),
-              icon: const Icon(Icons.add),
-              label: const Text('Agregar pregunta'),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => setState(
+                  () => questions.add(_QuestionModel(type: 'opcion_multiple')),
+                ),
+                icon: const Icon(Icons.add),
+                label: const Text(
+                  'Agregar pregunta',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
+                  textAlign: TextAlign.center,
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                    horizontal: 12,
+                  ), // 👈 padding interno
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
             ),
-            const Spacer(),
-            FilledButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.save),
-              label: const Text('Guardar quizz'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _save,
+                icon: const Icon(Icons.save),
+                label: const Text(
+                  'Guardar quizz',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
+                  textAlign: TextAlign.center,
+                ),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
             ),
           ],
         ),
@@ -1774,7 +2180,8 @@ class _QuestionModel {
     final prompt = (m['prompt'] ?? '').toString();
     final explanation = (m['explanation'] ?? '').toString();
     if (type == 'completar') {
-      final ans = (m['answerText'] ?? (m['options']?['option_0'] ?? '')).toString();
+      final ans = (m['answerText'] ?? (m['options']?['option_0'] ?? ''))
+          .toString();
       return _QuestionModel(
         type: 'completar',
         prompt: prompt,
@@ -1800,7 +2207,9 @@ class _QuestionModel {
 
   Map<String, dynamic> toMap() {
     if (type == 'completar') {
-      final ans = (answerText.isEmpty ? (options?['option_0'] ?? '') : answerText);
+      final ans = (answerText.isEmpty
+          ? (options?['option_0'] ?? '')
+          : answerText);
       return {
         'type': 'completar',
         'prompt': prompt,
@@ -1831,7 +2240,11 @@ class _QuestionModel {
 }
 
 class _QuestionEditor extends StatefulWidget {
-  const _QuestionEditor({super.key, required this.model, required this.onRemove});
+  const _QuestionEditor({
+    super.key,
+    required this.model,
+    required this.onRemove,
+  });
   final _QuestionModel model;
   final VoidCallback onRemove;
 
@@ -1927,33 +2340,52 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                 child: DropdownButtonFormField<String>(
                   value: t,
                   items: const [
-                    DropdownMenuItem(value: 'opcion_multiple', child: Text('opcion_multiple')),
+                    DropdownMenuItem(
+                      value: 'opcion_multiple',
+                      child: Text('opcion_multiple'),
+                    ),
                     DropdownMenuItem(value: 'vf', child: Text('vf')),
-                    DropdownMenuItem(value: 'completar', child: Text('completar')),
+                    DropdownMenuItem(
+                      value: 'completar',
+                      child: Text('completar'),
+                    ),
                   ],
                   onChanged: (v) => setState(() {
                     t = v ?? 'opcion_multiple';
                   }),
-                  decoration: const InputDecoration(labelText: 'Tipo', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Tipo',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               IconButton(
                 onPressed: widget.onRemove,
-                icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626)),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: Color(0xFFDC2626),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           TextField(
+            maxLines: 5,
             controller: promptCtl,
-            decoration: const InputDecoration(labelText: 'Enunciado', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Enunciado',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 8),
           if (t == 'completar') ...[
             TextField(
               controller: ansCtl,
-              decoration: const InputDecoration(labelText: 'Respuesta correcta', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                labelText: 'Respuesta correcta',
+                border: OutlineInputBorder(),
+              ),
             ),
           ] else if (t == 'vf') ...[
             DropdownButtonFormField<String>(
@@ -1963,16 +2395,43 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                 DropdownMenuItem(value: 'option_1', child: Text('Falso')),
               ],
               onChanged: (v) => setState(() => correct = v ?? 'option_0'),
-              decoration: const InputDecoration(labelText: 'Respuesta correcta', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                labelText: 'Respuesta correcta',
+                border: OutlineInputBorder(),
+              ),
             ),
           ] else ...[
-            TextField(controller: optA, decoration: const InputDecoration(labelText: 'Opción A', border: OutlineInputBorder())),
+            TextField(
+              controller: optA,
+              decoration: const InputDecoration(
+                labelText: 'Opción A',
+                border: OutlineInputBorder(),
+              ),
+            ),
             const SizedBox(height: 6),
-            TextField(controller: optB, decoration: const InputDecoration(labelText: 'Opción B', border: OutlineInputBorder())),
+            TextField(
+              controller: optB,
+              decoration: const InputDecoration(
+                labelText: 'Opción B',
+                border: OutlineInputBorder(),
+              ),
+            ),
             const SizedBox(height: 6),
-            TextField(controller: optC, decoration: const InputDecoration(labelText: 'Opción C', border: OutlineInputBorder())),
+            TextField(
+              controller: optC,
+              decoration: const InputDecoration(
+                labelText: 'Opción C',
+                border: OutlineInputBorder(),
+              ),
+            ),
             const SizedBox(height: 6),
-            TextField(controller: optD, decoration: const InputDecoration(labelText: 'Opción D (opcional)', border: OutlineInputBorder())),
+            TextField(
+              controller: optD,
+              decoration: const InputDecoration(
+                labelText: 'Opción D (opcional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
             const SizedBox(height: 6),
             DropdownButtonFormField<String>(
               value: correct,
@@ -1983,13 +2442,20 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                 DropdownMenuItem(value: 'option_3', child: Text('Correcta: D')),
               ],
               onChanged: (v) => setState(() => correct = v ?? 'option_0'),
-              decoration: const InputDecoration(labelText: 'Correcta', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                labelText: 'Correcta',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
           const SizedBox(height: 8),
           TextField(
+            maxLines: 5,
             controller: explCtl,
-            decoration: const InputDecoration(labelText: 'Explicación (opcional)', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+              labelText: 'Explicación (opcional)',
+              border: OutlineInputBorder(),
+            ),
           ),
           const SizedBox(height: 6),
           Align(
@@ -1997,12 +2463,14 @@ class _QuestionEditorState extends State<_QuestionEditor> {
             child: TextButton.icon(
               onPressed: () {
                 _persistBack();
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pregunta actualizada')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Pregunta actualizada')),
+                );
               },
               icon: const Icon(Icons.check),
               label: const Text('Aplicar'),
             ),
-          )
+          ),
         ],
       ),
     );

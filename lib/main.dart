@@ -1,15 +1,16 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:ticademy/collaborators_page.dart';
 import 'package:ticademy/friends_page.dart';
+import 'package:ticademy/presence_service.dart';
+import 'package:ticademy/teachers_page.dart';
 import 'firebase_options.dart';
+import './app_index_page.dart';
 import './login_page.dart';
 import './register_page.dart';
-import './app_index_page.dart';
 import './welcome_page.dart';
 import 'module_page.dart';
 import 'user_profile_page.dart';
-import 'package:ticademy/presence_service.dart';
-import 'package:ticademy/collaborators_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,7 +41,9 @@ class MyApp extends StatelessWidget {
         '/friends': (context) => const FriendsPage(),
         '/module': (context) => const ModulePage(),
         CollaboratorsPage.routeName: (_) => const CollaboratorsPage(),
+        TeachersPage.routeName: (_) => const TeachersPage(),
       },
     );
   }
 }
+

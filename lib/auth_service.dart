@@ -1,16 +1,16 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 ValueNotifier<AuthService> authService = ValueNotifier(AuthService());
 
 class AuthService {
+  AuthService();
+
   final FirebaseAuth firebaseAuth = FirebaseAuth.instance;
-  // Usa el mismo objeto en toda la app para que comparta sesión interna.
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    // scopes si los usas: scopes: ['email'],
-    // TIP: si quieres *siempre* forzar selector de cuenta, desconectamos abajo.
-  );
+  final FirebaseDatabase _database = FirebaseDatabase.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   User? get currentUser => firebaseAuth.currentUser;
   Stream<User?> get authStateChanges => firebaseAuth.authStateChanges();
@@ -18,18 +18,25 @@ class AuthService {
   Future<UserCredential> signIn({
     required String email,
     required String password,
-  }) =>
-      firebaseAuth.signInWithEmailAndPassword(email: email, password: password);
+  }) {
+    return firebaseAuth.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+  }
 
   Future<UserCredential> createAccount({
     required String email,
     required String password,
-  }) =>
-      firebaseAuth.createUserWithEmailAndPassword(email: email, password: password);
+  }) {
+    return firebaseAuth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+  }
 
   Future<UserCredential> signInWithGoogle() async {
     try {
-      // Opcional: asegurarte de no reusar silenciosamente un estado previo
       if (await _googleSignIn.isSignedIn()) {
         await _googleSignIn.disconnect().catchError((_) {});
         await _googleSignIn.signOut().catchError((_) {});
@@ -43,7 +50,8 @@ class AuthService {
         );
       }
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
@@ -59,26 +67,19 @@ class AuthService {
     }
   }
 
-  /// 🔐 Logout real: Firebase + Google (revoca token en la app)
   Future<void> signOut() async {
-    // 1) Cierra sesión de Firebase
     await firebaseAuth.signOut();
-
-    // 2) Cierra sesión de Google y además desconecta (revoca el consentimiento en esta app)
-    //    Esto evita que el siguiente tap en "Ingresar con Google" te autentique
-    //    automáticamente con la cuenta anterior.
     try {
       if (await _googleSignIn.isSignedIn()) {
-        await _googleSignIn.disconnect(); // revoca en la app
-        await _googleSignIn.signOut();    // limpia sesión local del SDK
+        await _googleSignIn.disconnect();
+        await _googleSignIn.signOut();
       }
-    } catch (_) {
-      // Ignora errores cosméticos del SDK de Google
-    }
+    } catch (_) {}
   }
 
-  Future<void> resetPassword({required String email}) =>
-      firebaseAuth.sendPasswordResetEmail(email: email);
+  Future<void> resetPassword({required String email}) {
+    return firebaseAuth.sendPasswordResetEmail(email: email);
+  }
 
   Future<void> updateUsername({required String username}) async {
     final user = currentUser;
@@ -93,11 +94,11 @@ class AuthService {
     final user = currentUser;
     if (user == null) throw Exception('No hay usuario autenticado');
 
-    final cred = EmailAuthProvider.credential(email: email, password: password);
+    final cred =
+        EmailAuthProvider.credential(email: email, password: password);
     await user.reauthenticateWithCredential(cred);
     await user.delete();
 
-    // Por si acaso, cierra también Google
     await signOut();
   }
 
@@ -109,8 +110,89 @@ class AuthService {
     final user = currentUser;
     if (user == null) throw Exception('No hay usuario autenticado');
 
-    final cred = EmailAuthProvider.credential(email: email, password: currentPassword);
+    final cred =
+        EmailAuthProvider.credential(email: email, password: currentPassword);
     await user.reauthenticateWithCredential(cred);
     await user.updatePassword(newPassword);
+  }
+
+  Future<String> ensureUserRole({User? user}) async {
+    user ??= currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No hay usuario autenticado.',
+      );
+    }
+
+    final uid = user.uid;
+    final ref = _database.ref('users/$uid');
+    final snapshot = await ref.get();
+
+    final displayName = user.displayName?.trim().isNotEmpty == true
+        ? user.displayName!.trim()
+        : (user.email != null ? user.email!.split('@').first : 'Aprendiz');
+    final email = user.email ?? '';
+    final photoURL = user.photoURL ?? '';
+    final nowIso = DateTime.now().toIso8601String();
+
+    if (!snapshot.exists) {
+      await ref.set({
+        'profile': {
+          'displayName': displayName,
+          'email': email,
+          'photoURL': photoURL,
+          'role': 'aprendiz',
+          'language': 'es',
+          'timeZone': DateTime.now().timeZoneName,
+        },
+        'progress': {
+          'overallPercent': 0,
+          'currentModuleId': 'windows_basics',
+          'currentSectionId': 'sec_01_escritorio',
+          'lastAccess': nowIso,
+          'streakDays': 0,
+        },
+        'stats': {
+          'points': 0,
+          'badges': {},
+          'totalStudySeconds': 0,
+        },
+        'settings': {
+          'notifications': true,
+          'weeklyReminder': '',
+          'highContrast': false,
+        },
+      });
+    } else {
+      await ref.update({
+        'profile/displayName': displayName,
+        'profile/email': email,
+        'profile/photoURL': photoURL,
+        'progress/lastAccess': nowIso,
+      });
+    }
+
+    if (email.isNotEmpty) {
+      final sanitized = _sanitizeEmailKey(email);
+      await _database.ref('emails/$sanitized').set(uid);
+    }
+
+    final roleSnap =
+        await _database.ref('users/$uid/profile/role').get();
+    final role = (roleSnap.value ?? 'aprendiz').toString().trim().toLowerCase();
+    if (role.isEmpty) {
+      await _database.ref('users/$uid/profile/role').set('aprendiz');
+      return 'aprendiz';
+    }
+    return role;
+  }
+
+  String _sanitizeEmailKey(String email) {
+    return email
+        .trim()
+        .toLowerCase()
+        .replaceAll('.', ',')
+        .replaceAll(RegExp(r'[^\w@+\-]'), '_');
   }
 }

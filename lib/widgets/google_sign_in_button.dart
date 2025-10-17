@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ticademy/auth_service.dart';
+import 'package:ticademy/role_navigator.dart';
 
 class GoogleSignInButton extends StatefulWidget {
   const GoogleSignInButton({
@@ -33,8 +34,14 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> {
 
     try {
       final credential = await authService.value.signInWithGoogle();
+      final user = credential.user ?? FirebaseAuth.instance.currentUser;
       if (!mounted) return;
-      widget.onSignedIn?.call(credential);
+      if (widget.onSignedIn != null) {
+        widget.onSignedIn!(credential);
+      } else if (user != null) {
+        await RoleNavigator.handlePostSignIn(context, user);
+      }
+      return;
     } on FirebaseAuthException catch (e) {
       widget.onError?.call(e);
       if (!mounted) return;
@@ -135,3 +142,5 @@ class _GoogleSignInButtonState extends State<GoogleSignInButton> {
     );
   }
 }
+
+

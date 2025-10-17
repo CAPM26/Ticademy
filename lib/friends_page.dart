@@ -35,6 +35,19 @@ class _FriendsPageState extends State<FriendsPage> {
   List<_InviteVM> _outgoing = [];
   StreamSubscription<DatabaseEvent>? _invitesSub;
 
+  // Aulas
+  StreamSubscription<DatabaseEvent>? _classroomsSub;
+  StreamSubscription<DatabaseEvent>? _classMembersSub;
+  StreamSubscription<DatabaseEvent>? _classInvitesSub;
+  Map<String, dynamic> _classrooms = {};
+  Map<String, dynamic> _classMembersMap = {};
+  Map<String, dynamic> _classInvitesMap = {};
+  List<_ClassMembershipVM> _classMemberships = [];
+  List<_ClassInviteVM> _classInvites = [];
+  String? _selectedClassId;
+  String _classesMessage = "";
+
+  String _normalizedEmailKey = "";
   // Estados UI
   String _searchTerm = '';
   String? _inviteFeedback; // texto
@@ -54,6 +67,9 @@ class _FriendsPageState extends State<FriendsPage> {
     _inviteCtrl.dispose();
     _friendsSub?.cancel();
     _invitesSub?.cancel();
+    _classroomsSub?.cancel();
+    _classMembersSub?.cancel();
+    _classInvitesSub?.cancel();
     for (final s in _statusSubs.values) {
       s.cancel();
     }
@@ -64,8 +80,10 @@ class _FriendsPageState extends State<FriendsPage> {
     final user = _auth.currentUser;
     if (user == null) return;
 
+    _normalizedEmailKey = _sanitizeEmailKey(user.email ?? '');
     _attachFriendsListener(user.uid);
     _attachInvitesListener(user.uid);
+    _attachClassroomListeners(user.uid);
   }
 
   // ======== LISTEN FRIENDS ========
@@ -214,6 +232,147 @@ class _FriendsPageState extends State<FriendsPage> {
         _outgoing = outgoing;
       });
     });
+  }
+
+
+  void _attachClassroomListeners(String uid) {
+    _classroomsSub?.cancel();
+    _classroomsSub = _db.ref('classrooms').onValue.listen((event) {
+      final value = event.snapshot.value;
+      final map = value is Map
+          ? Map<String, dynamic>.from(value as Map)
+          : <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _classrooms = map;
+      });
+      _updateClassMemberships();
+      _updateClassInvites();
+    });
+
+    _classMembersSub?.cancel();
+    _classMembersSub = _db.ref('classroomMembers').onValue.listen((event) {
+      final value = event.snapshot.value;
+      final map = value is Map
+          ? Map<String, dynamic>.from(value as Map)
+          : <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _classMembersMap = map;
+      });
+      _updateClassMemberships();
+    });
+
+    _classInvitesSub?.cancel();
+    _classInvitesSub = _db.ref('classroomInvites').onValue.listen((event) {
+      final value = event.snapshot.value;
+      final map = value is Map
+          ? Map<String, dynamic>.from(value as Map)
+          : <String, dynamic>{};
+      if (!mounted) return;
+      setState(() {
+        _classInvitesMap = map;
+      });
+      _updateClassInvites();
+    });
+  }
+
+  void _updateClassMemberships() {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) {
+      if (!mounted) return;
+      setState(() {
+        _classMemberships = [];
+        _selectedClassId = null;
+      });
+      return;
+    }
+    final classes = <_ClassMembershipVM>[];
+    _classMembersMap.forEach((classId, rawMembers) {
+      if (rawMembers is Map && rawMembers.containsKey(uid)) {
+        final members = Map<String, dynamic>.from(rawMembers as Map);
+        final classInfo =
+            _classrooms[classId] is Map ? Map<String, dynamic>.from(_classrooms[classId] as Map) : <String, dynamic>{};
+        final joinInfo =
+            members[uid] is Map ? Map<String, dynamic>.from(members[uid] as Map) : <String, dynamic>{};
+        classes.add(
+          _ClassMembershipVM(
+            classId: classId,
+            name: (classInfo['name'] ?? classId).toString(),
+            ownerUid: (classInfo['ownerUid'] ?? '').toString(),
+            createdAt: classInfo['createdAt'],
+            joinedAt: joinInfo['joinedAt'],
+            memberCount: members.length,
+          ),
+        );
+      }
+    });
+    classes.sort((a, b) => a.name.compareTo(b.name));
+    if (!mounted) return;
+    setState(() {
+      _classMemberships = classes;
+      if (_selectedClassId != null &&
+          !_classMemberships.any((membership) => membership.classId == _selectedClassId)) {
+        _selectedClassId = classes.isNotEmpty ? classes.first.classId : null;
+      } else if (_selectedClassId == null && classes.isNotEmpty) {
+        _selectedClassId = classes.first.classId;
+      }
+      _classesMessage = classes.isEmpty ? 'Aun no perteneces a ninguna aula.' : '';
+    });
+  }
+
+  void _updateClassInvites() {
+    final uid = _auth.currentUser?.uid ?? '';
+    final emailKey = _normalizedEmailKey;
+    final invites = <_ClassInviteVM>[];
+    _classInvitesMap.forEach((code, raw) {
+      if (raw is! Map) return;
+      final map = Map<String, dynamic>.from(raw as Map);
+      final status = (map['status'] ?? 'pending').toString();
+      if (status != 'pending') return;
+      final classId = (map['classId'] ?? '').toString();
+      if (classId.isEmpty) return;
+      final inviteEmail = (map['email'] ?? '').toString().toLowerCase();
+      final targetUid = (map['uid'] ?? map['targetUid'] ?? '').toString();
+      final sanitizedInviteEmail = _sanitizeEmailKey(inviteEmail);
+      final matchesEmail = emailKey.isNotEmpty && sanitizedInviteEmail == emailKey;
+      final matchesUid = uid.isNotEmpty && targetUid == uid;
+      if (!matchesEmail && !matchesUid) return;
+      final classInfo =
+          _classrooms[classId] is Map ? Map<String, dynamic>.from(_classrooms[classId] as Map) : <String, dynamic>{};
+      invites.add(
+        _ClassInviteVM(
+          code: code.toString(),
+          classId: classId,
+          className: (classInfo['name'] ?? classId).toString(),
+          ownerUid: (map['ownerUid'] ?? '').toString(),
+          email: inviteEmail,
+          createdAt: map['createdAt'],
+        ),
+      );
+    });
+    invites.sort((a, b) => (b.createdAtNum ?? 0).compareTo(a.createdAtNum ?? 0));
+    if (!mounted) return;
+    setState(() {
+      _classInvites = invites;
+    });
+  }
+
+  Future<void> _respondClassInvite(_ClassInviteVM invite, bool accept) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      if (accept) {
+        await _db.ref('classroomMembers/${invite.classId}/$uid').set({
+          'role': 'aprendiz',
+          'joinedAt': ServerValue.timestamp,
+        });
+      }
+      await _db.ref('classroomInvites/${invite.code}').remove();
+      _snack(accept ? 'Te uniste al aula.' : 'Invitación rechazada.');
+    } catch (e) {
+      _snack('No se pudo completar la acción.');
+    }
   }
 
   // ======== INVITE FLOW ========
@@ -478,6 +637,7 @@ Future<void> _removeFriend(_FriendVM friend) async {
               if (_view == FriendsView.friends) _buildFriendsPanel(),
               if (_view == FriendsView.invites) _buildInvitesPanel(),
               const SizedBox(height: 24),
+              if (_view == FriendsView.classes) _buildClassesPanel(),
             ],
           ),
         ),
@@ -533,6 +693,11 @@ Future<void> _removeFriend(_FriendVM friend) async {
                 label: 'Invitaciones',
                 active: _view == FriendsView.invites,
                 onTap: () => setState(() => _view = FriendsView.invites),
+              ),
+              _toggleChip(
+                label: "Aulas",
+                active: _view == FriendsView.classes,
+                onTap: () => setState(() => _view = FriendsView.classes),
               ),
             ],
           ),
@@ -613,6 +778,83 @@ Future<void> _removeFriend(_FriendVM friend) async {
                 ],
               ],
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _classMembershipTile(_ClassMembershipVM membership) {
+    final created = _formatDateTime(membership.createdAt);
+    final joined = _formatDateTime(membership.joinedAt);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8ECF6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            membership.name.isNotEmpty ? membership.name : membership.classId,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text('ID: ${membership.classId}'),
+          const SizedBox(height: 4),
+          Text(
+            'Propietario: ${membership.ownerUid.isEmpty ? '-' : membership.ownerUid}',
+          ),
+          const SizedBox(height: 4),
+          Text('Creación: $created • Integrantes: ${membership.memberCount}'),
+          const SizedBox(height: 4),
+          Text('Te uniste: $joined'),
+        ],
+      ),
+    );
+  }
+
+  Widget _classInviteTile(_ClassInviteVM invite) {
+    final created = _formatDateTime(invite.createdAt);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8ECF6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            invite.className.isNotEmpty ? invite.className : invite.classId,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text('Código: ${invite.code}'),
+          const SizedBox(height: 4),
+          Text(
+            'Propietario: ${invite.ownerUid.isEmpty ? '-' : invite.ownerUid}',
+          ),
+          const SizedBox(height: 4),
+          Text('Invitación enviada: $created'),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              FilledButton(
+                onPressed: () => _respondClassInvite(invite, true),
+                child: const Text('Aceptar'),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton(
+                onPressed: () => _respondClassInvite(invite, false),
+                child: const Text('Rechazar'),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -750,6 +992,49 @@ Widget _friendTile(_FriendVM f) {
 
 
   // ======== INVITES PANEL ========
+
+  Widget _buildClassesPanel() {
+    return Container(
+      decoration: _panelDecor(),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _panelHead('Aulas', 'Revisa las aulas en las que participas y responde a las invitaciones.'),
+          const SizedBox(height: 12),
+          if (_classMemberships.isEmpty)
+            _empty(_classesMessage.isNotEmpty ? _classesMessage : 'Aun no perteneces a ninguna aula.'),
+          if (_classMemberships.isNotEmpty)
+            Column(
+              children: [
+                for (final membership in _classMemberships) ...[
+                  _classMembershipTile(membership),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
+          const SizedBox(height: 18),
+          const Text(
+            'Invitaciones a aulas',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 12),
+          if (_classInvites.isEmpty)
+            _empty('No tienes invitaciones a aulas.'),
+          if (_classInvites.isNotEmpty)
+            Column(
+              children: [
+                for (final invite in _classInvites) ...[
+                  _classInviteTile(invite),
+                  const SizedBox(height: 12),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInvitesPanel() {
     return Container(
       decoration: _panelDecor(),
@@ -1111,25 +1396,41 @@ Widget _friendTile(_FriendVM f) {
     return '$a$b';
   }
 
-  String _relative(dynamic v) {
+  String _relative(dynamic value) {
     DateTime? dt;
-    if (v is int) {
-      dt = DateTime.fromMillisecondsSinceEpoch(v);
-    } else if (v is String) {
-      dt = DateTime.tryParse(v);
+    if (value is int) {
+      dt = DateTime.fromMillisecondsSinceEpoch(value);
+    } else if (value is String) {
+      dt = DateTime.tryParse(value);
     }
     if (dt == null) return 'Sin actividad reciente';
     final diff = DateTime.now().difference(dt);
     if (diff.inMinutes < 2) return 'Hace un momento';
     if (diff.inHours < 1) return 'Hace ${diff.inMinutes} min';
     if (diff.inHours < 24) return 'Hace ${diff.inHours} h';
-    if (diff.inDays < 7) return 'Hace ${diff.inDays} días';
+    if (diff.inDays < 7) return 'Hace ${diff.inDays} dias';
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+  }
+
+  String _formatDateTime(dynamic value) {
+    if (value == null) return '-';
+    if (value is int) {
+      final date = DateTime.fromMillisecondsSinceEpoch(value);
+      return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+    }
+    final parsed = DateTime.tryParse(value.toString());
+    if (parsed == null) return '-';
+    return '${parsed.day.toString().padLeft(2, '0')}/${parsed.month.toString().padLeft(2, '0')}/${parsed.year}';
+  }
+
+  String _sanitizeEmailKey(String email) {
+    if (email.isEmpty) return '';
+    return email.trim().toLowerCase().replaceAll('.', ',').replaceAll(RegExp(r'[^\w@+\-]'), '_');
   }
 }
 
 // ======== MODELOS ========
-enum FriendsView { friends, invites }
+enum FriendsView { friends, invites, classes }
 
 class _FriendVM {
   final String id;
@@ -1149,13 +1450,13 @@ class _FriendVM {
   });
 
   _FriendVM copyWith({bool? online, dynamic lastAccess}) => _FriendVM(
-    id: id,
-    name: name,
-    email: email,
-    photoUrl: photoUrl,
-    lastAccess: lastAccess ?? this.lastAccess,
-    online: online ?? this.online,
-  );
+        id: id,
+        name: name,
+        email: email,
+        photoUrl: photoUrl,
+        lastAccess: lastAccess ?? this.lastAccess,
+        online: online ?? this.online,
+      );
 }
 
 enum _InviteKind { incoming, outgoing }
@@ -1196,12 +1497,54 @@ class _InviteLookup {
   String get nameOrId => name.isNotEmpty ? name : userId;
 
   _InviteLookup copyWith({bool? canSend, String? reason}) => _InviteLookup(
-    userId: userId,
-    name: name,
-    email: email,
-    canSend: canSend ?? this.canSend,
-    reason: reason ?? this.reason,
-  );
+        userId: userId,
+        name: name,
+        email: email,
+        canSend: canSend ?? this.canSend,
+        reason: reason ?? this.reason,
+      );
 }
 
 enum _InviteTone { muted, success, info, error }
+
+class _ClassMembershipVM {
+  _ClassMembershipVM({
+    required this.classId,
+    required this.name,
+    required this.ownerUid,
+    required this.memberCount,
+    this.createdAt,
+    this.joinedAt,
+  });
+
+  final String classId;
+  final String name;
+  final String ownerUid;
+  final int memberCount;
+  final dynamic createdAt;
+  final dynamic joinedAt;
+}
+
+class _ClassInviteVM {
+  _ClassInviteVM({
+    required this.code,
+    required this.classId,
+    required this.className,
+    required this.ownerUid,
+    required this.email,
+    required this.createdAt,
+  });
+
+  final String code;
+  final String classId;
+  final String className;
+  final String ownerUid;
+  final String email;
+  final dynamic createdAt;
+
+  int? get createdAtNum =>
+      createdAt is int ? createdAt as int : int.tryParse(createdAt?.toString() ?? '');
+}
+
+
+

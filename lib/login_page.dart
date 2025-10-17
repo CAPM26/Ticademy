@@ -1,7 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:ticademy/app_index_page.dart';
 import 'package:ticademy/auth_service.dart';
+import 'package:ticademy/role_navigator.dart';
 import 'package:ticademy/widgets/google_sign_in_button.dart';
 
 class LoginPage extends StatefulWidget {
@@ -60,12 +60,14 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      await authService.value.signIn(
+      final credential = await authService.value.signIn(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-      if (!mounted) return;
-      _navigateToHome();
+      final user = credential.user ?? FirebaseAuth.instance.currentUser;
+      if (user != null && mounted) {
+        await RoleNavigator.handlePostSignIn(context, user);
+      }
     } on FirebaseAuthException catch (e) {
       setState(() {
         errorMessage = e.message ?? 'No se pudo iniciar sesion.';
@@ -104,13 +106,6 @@ class _LoginPageState extends State<LoginPage> {
         SnackBar(content: Text('Error: ${e.message ?? 'Intenta nuevamente'}')),
       );
     }
-  }
-
-  void _navigateToHome() {
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (context) => AppIndexPage()),
-      (Route<dynamic> route) => false,
-    );
   }
 
   @override
@@ -280,11 +275,13 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                             ),
                           ),
-                          const SizedBox(height: 18),
+                         const SizedBox(height: 18),
                           GoogleSignInButton(
-                            onSignedIn: (_) {
-                              if (!mounted) return;
-                              _navigateToHome();
+                            onSignedIn: (credential) async {
+                              final user = credential.user ?? FirebaseAuth.instance.currentUser;
+                              if (user != null && mounted) {
+                                await RoleNavigator.handlePostSignIn(context, user);
+                              }
                             },
                           ),
                         ],

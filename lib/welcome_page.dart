@@ -1,8 +1,8 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:ticademy/app_index_page.dart';
 import 'package:ticademy/auth_service.dart';
-import 'package:ticademy/presence_service.dart'; // usamos tu servicio
+import 'package:ticademy/role_navigator.dart';
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
@@ -24,10 +24,7 @@ class _WelcomePageState extends State<WelcomePage>
       duration: const Duration(milliseconds: 900),
       vsync: this,
     );
-    _fadeAnimation = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOut,
-    );
+    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0, 0.12),
       end: Offset.zero,
@@ -35,17 +32,14 @@ class _WelcomePageState extends State<WelcomePage>
     _controller.forward();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // 🔐 Limpieza defensiva del estado del SDK de Google para evitar
-      // reautenticación automática con la cuenta previa.
       try {
-        final g = GoogleSignIn();
-        if (await g.isSignedIn()) {
-          await g.disconnect().catchError((_) {});
-          await g.signOut().catchError((_) {});
+        final google = GoogleSignIn();
+        if (await google.isSignedIn()) {
+          await google.disconnect().catchError((_) {});
+          await google.signOut().catchError((_) {});
         }
       } catch (_) {}
 
-      // Precarga de imágenes
       precacheImage(
         const AssetImage('assets/images/logos/Ticademy_Logo.png'),
         context,
@@ -54,6 +48,11 @@ class _WelcomePageState extends State<WelcomePage>
         const AssetImage('assets/images/iconos/google_icon.png'),
         context,
       );
+
+      final current = FirebaseAuth.instance.currentUser;
+      if (current != null && mounted) {
+        await RoleNavigator.handlePostSignIn(context, current);
+      }
     });
   }
 
@@ -90,23 +89,13 @@ class _WelcomePageState extends State<WelcomePage>
         child: Image.asset(
           'assets/images/logos/Ticademy_Logo.png',
           fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => const _TicademyGlyph(),
+          errorBuilder: (_, __, ___) => const _TicademyGlyph(),
         ),
       ),
     );
   }
 
-  Widget _buildGoogleButton() {
-    return _GoogleSignInButton(
-      onSignedIn: (_) {
-        if (!mounted) return;
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const AppIndexPage()),
-          (route) => false,
-        );
-      },
-    );
-  }
+  Widget _buildGoogleButton() => const _GoogleSignInButton();
 
   Widget _buildEmailButton() {
     return SizedBox(
@@ -295,11 +284,8 @@ class _TicademyGlyph extends StatelessWidget {
   }
 }
 
-/// Botón local para iniciar sesión con Google usando tu AuthService.
-/// Elimina la dependencia a `widgets/google_sign_in_button.dart`.
 class _GoogleSignInButton extends StatefulWidget {
-  const _GoogleSignInButton({required this.onSignedIn});
-  final void Function(Object /*UserCredential*/ cred) onSignedIn;
+  const _GoogleSignInButton();
 
   @override
   State<_GoogleSignInButton> createState() => _GoogleSignInButtonState();
@@ -312,18 +298,17 @@ class _GoogleSignInButtonState extends State<_GoogleSignInButton> {
     if (_loading) return;
     setState(() => _loading = true);
     try {
-      // Asegura que no se reusa sesión previa (ya lo hace el servicio también)
-      // dentro de _handleGoogle()
-      final cred = await authService.value.signInWithGoogle();
-      // Marca online inmediatamente
-      await PresenceService.instance.setOnlineAndBind();
+      final credential = await authService.value.signInWithGoogle();
+      final user = credential.user ?? FirebaseAuth.instance.currentUser;
       if (!mounted) return;
-      widget.onSignedIn(cred);
+      if (user != null) {
+        await RoleNavigator.handlePostSignIn(context, user);
+      }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }

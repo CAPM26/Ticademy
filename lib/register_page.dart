@@ -1,9 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:ticademy/app_index_page.dart';
-import 'package:ticademy/widgets/google_sign_in_button.dart';
 import 'package:ticademy/auth_service.dart';
 import 'package:ticademy/login_page.dart';
+import 'package:ticademy/role_navigator.dart';
+import 'package:ticademy/widgets/google_sign_in_button.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -57,16 +58,16 @@ class _RegisterPageState extends State<RegisterPage> {
     });
 
     try {
-      await authService.value.createAccount(
+      final credential = await authService.value.createAccount(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+      final user = credential.user ?? FirebaseAuth.instance.currentUser;
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-        (route) => false,
-      );
+      if (user != null) {
+        await RoleNavigator.handlePostSignIn(context, user);
+      }
+      return;
     } on FirebaseAuthException catch (e) {
       setState(() {
         errorMessage = 'Error de registro: ${e.message ?? 'Intenta de nuevo'}';
@@ -299,3 +300,6 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 }
+
+
+
