@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:ticademy/achievements_page.dart';
 import 'package:ticademy/friends_page.dart';
 import 'package:ticademy/presence_service.dart';
 import 'package:ticademy/ui/app_scaffold.dart';
@@ -23,7 +24,6 @@ class _AppIndexPageState extends State<AppIndexPage> {
   // UI controllers
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey _modulesKey = GlobalKey();
   Timer? _debouncer;
 
   // RTDB subscriptions
@@ -175,18 +175,6 @@ class _AppIndexPageState extends State<AppIndexPage> {
     return 0;
   }
 
-  Future<void> _scrollToModules() async {
-    // Desplaza suave hasta la grilla de módulos (equivalente a ancla #modulesGrid)
-    final ctx = _modulesKey.currentContext;
-    if (ctx == null) return;
-    await Scrollable.ensureVisible(
-      ctx,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-      alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
-    );
-  }
-
   // ================= Build =================
 
   @override
@@ -199,10 +187,10 @@ class _AppIndexPageState extends State<AppIndexPage> {
       onNavigateToTab: (tab) async {
         switch (tab) {
           case AppTab.home:
-            // Ya estás en Home
             break;
-          case AppTab.modules:
-            await _scrollToModules();
+          case AppTab.achievements:
+            if (!mounted) return;
+            await Navigator.of(context).pushNamed(AchievementsPage.routeName);
             break;
           case AppTab.friends:
             if (!mounted) return;
@@ -226,19 +214,13 @@ class _AppIndexPageState extends State<AppIndexPage> {
             const SizedBox(height: 10),
             _buildLevelChips(),
             const SizedBox(height: 15),
-
-            // Sección "modules" con Key para hacer scroll desde el tab inferior
             Container(
-              key: _modulesKey,
               child: loading
                   ? const _SkeletonGrid()
                   : modules.isEmpty
                   ? const _EmptyState()
                   : _buildModulesGrid(modules),
             ),
-
-            const SizedBox(height: 24),
-            _buildChallengesCard(),
           ],
         ),
       ),
@@ -308,44 +290,16 @@ class _AppIndexPageState extends State<AppIndexPage> {
     );
   }
 
-  Widget _buildChallengesCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Retos',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          SizedBox(height: 4),
-          Text(
-            'Muy pronto encontrarás desafíos interactivos para reforzar tus aprendizajes.',
-            style: TextStyle(color: Color(0xFF6B7280)),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _openModule(_ModuleVM m) {
-    final title = (m.title ?? '').toLowerCase();
-    if (title.contains('windows')) {
-      Navigator.of(context).pushNamed(ModulePage.routeName);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Abrir módulo: ${m.title ?? m.id}')),
-      );
-    }
+    // navega SIEMPRE al módulo seleccionado y pásale su id
+    Navigator.of(context).pushNamed(
+      ModulePage.routeName,
+      arguments: m.id, // debe coincidir con la key en learningModules
+    );
   }
 }
 
-// ================= VM + UI Cards =================
+// ================= VM + helpers visuales =================
 
 class _ModuleVM {
   final String id;
@@ -387,176 +341,215 @@ class _ModuleVM {
   }
 }
 
+class _ModuleVisuals {
+  final String? imageAsset; // si null, usar degradado
+  final Color colorPrimary;
+  const _ModuleVisuals({required this.imageAsset, required this.colorPrimary});
+}
+
+// Detecta módulo por id/título y devuelve icono + color base
+_ModuleVisuals _resolveVisuals(_ModuleVM m) {
+  final id = m.id.toLowerCase();
+  final title = (m.title ?? '').toLowerCase();
+
+  bool has(String s) => id.contains(s) || title.contains(s);
+
+  if (has('windows')) {
+    return const _ModuleVisuals(
+      imageAsset: 'assets/images/iconos/windows.png',
+      colorPrimary: Color(0xFF2563EB), // azul Windows
+    );
+  }
+  if (has('office') || has('ofimática') || has('ofimatica')) {
+    return const _ModuleVisuals(
+      imageAsset: 'assets/images/iconos/office.png',
+      colorPrimary: Color(0xFFF97316), // naranja Office
+    );
+  }
+  if (has('internet') || has('web') || has('navegación') || has('navegacion')) {
+    return const _ModuleVisuals(
+      imageAsset: 'assets/images/iconos/internet.png',
+      colorPrimary: Color(0xFF0EA5E9), // celeste/azul Internet
+    );
+  }
+  if (has('ciber') || has('ciberseguridad') || has('seguridad')) {
+    return const _ModuleVisuals(
+      imageAsset: 'assets/images/iconos/ciber.png',
+      colorPrimary: Color(0xFF7C3AED), // púrpura Ciberseguridad
+    );
+  }
+  // Fallback: usa tema del módulo (si viene)
+  return _ModuleVisuals(imageAsset: null, colorPrimary: _themeColor(m.theme));
+}
+
+// Colores fallback por theme textual
+Color _themeColor(String? theme) {
+  switch ((theme ?? '').toLowerCase()) {
+    case 'blue':
+      return const Color(0xFF2563EB);
+    case 'green':
+      return const Color(0xFF22C55E);
+    case 'orange':
+      return const Color(0xFFF97316);
+    case 'purple':
+      return const Color(0xFF7C3AED);
+    default:
+      return const Color(0xFF64748B);
+  }
+}
+
+// =================== Cards ===================
+
 class _ModuleCard extends StatelessWidget {
   const _ModuleCard({required this.module, required this.onOpen});
 
   final _ModuleVM module;
   final VoidCallback onOpen;
 
-@override
-Widget build(BuildContext context) {
-  final themeColor = _themeColor(module.theme);
-  final isWindows = (module.id.toLowerCase().contains('windows') ||
-      (module.title ?? '').toLowerCase().contains('windows'));
-  final percent = module.percent.clamp(0, 100);
+  @override
+  Widget build(BuildContext context) {
+    final vis = _resolveVisuals(module);
+    final percent = module.percent.clamp(0, 100);
 
-  return Stack(
-    children: [
-      // Card
-      Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 18,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Cabecera: imagen (Windows) o bloque de color (otros)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 90,
-                  child: isWindows
-                      ? Image.asset(
-                          'assets/images/iconos/windows.png',
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                themeColor,
-                                Color.lerp(themeColor, Colors.white, .28) ??
-                                    themeColor
-                              ],
-                            ),
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Título y lecciones
-              Text(
-                module.title ?? 'Módulo',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Color(0xFF1D2536),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                module.lessons == 1
-                    ? '1 lección'
-                    : '${module.lessons} lecciones',
-                style: const TextStyle(color: Color(0xFF6B7280)),
-              ),
-              const SizedBox(height: 10),
-
-              // Barra de progreso
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: percent / 100,
-                  minHeight: 8,
-                  color: isWindows ? Colors.blueAccent : themeColor,
-                  backgroundColor: (isWindows
-                          ? Colors.blue
-                          : themeColor)
-                      .withOpacity(0.12),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Botón
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: onOpen,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEFF3FB),
-                    foregroundColor: const Color(0xFF1D2536),
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  child: Text(percent > 0 ? 'Reanudar' : 'Ver módulo'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-
-      // Chip con porcentaje, arriba-derecha
-      Positioned(
-        top: 12,
-        right: 12,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    return Stack(
+      children: [
+        // Card
+        Container(
           decoration: BoxDecoration(
-            color: (isWindows ? Colors.blueAccent : themeColor),
-            borderRadius: BorderRadius.circular(12),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(26),
             boxShadow: [
               BoxShadow(
-                color: (isWindows ? Colors.blueAccent : themeColor)
-                    .withOpacity(.25),
-                blurRadius: 10,
-                offset: const Offset(0, 6),
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 18,
+                offset: const Offset(0, 12),
               ),
             ],
           ),
-          child: Text(
-            '$percent%',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cabecera: imagen (si hay) o bloque de color
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 90,
+                    child: vis.imageAsset != null
+                        ? Image.asset(vis.imageAsset!, fit: BoxFit.cover)
+                        : Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  vis.colorPrimary,
+                                  Color.lerp(
+                                        vis.colorPrimary,
+                                        Colors.white,
+                                        .28,
+                                      ) ??
+                                      vis.colorPrimary,
+                                ],
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Título y lecciones
+                Text(
+                  module.title ?? 'Módulo',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Color(0xFF1D2536),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  module.lessons == 1
+                      ? '1 lección'
+                      : '${module.lessons} lecciones',
+                  style: const TextStyle(color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 10),
+
+                // Barra de progreso
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: percent / 100,
+                    minHeight: 8,
+                    color: vis.colorPrimary,
+                    backgroundColor: vis.colorPrimary.withValues(alpha: 0.12),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Botón
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: onOpen,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEFF3FB),
+                      foregroundColor: const Color(0xFF1D2536),
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    child: Text(percent > 0 ? 'Reanudar' : 'Ver módulo'),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      ),
-    ],
-  );
-}
 
-
-  Color _themeColor(String? theme) {
-    switch ((theme ?? '').toLowerCase()) {
-      case 'blue':
-        return const Color(0xFF2563EB);
-      case 'green':
-        return const Color(0xFF22C55E);
-      case 'orange':
-        return const Color(0xFFF97316);
-      case 'purple':
-        return const Color(0xFF7C3AED);
-      default:
-        return const Color(0xFF64748B);
-    }
+        // Chip con porcentaje, arriba-derecha
+        Positioned(
+          top: 12,
+          right: 12,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: vis.colorPrimary,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: vis.colorPrimary.withValues(alpha: .25),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Text(
+              '$percent%',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
+
 class _CardTopHeader extends StatelessWidget {
   const _CardTopHeader({required this.module});
   final _ModuleVM module;
@@ -564,52 +557,43 @@ class _CardTopHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final percent = module.percent.clamp(0, 100);
-    final isWindows = (module.id.toLowerCase().contains('windows') ||
-        (module.title ?? '').toLowerCase().contains('windows'));
-
-    // Colores por defecto si NO es Windows (tu fallback actual)
-    final fallback = _themeColor(module.theme);
-    final fallbackLight = Color.lerp(fallback, Colors.white, .22) ?? fallback;
+    final vis = _resolveVisuals(module);
+    final fallbackLight =
+        Color.lerp(vis.colorPrimary, Colors.white, .22) ?? vis.colorPrimary;
 
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: Container(
         height: 132,
         decoration: BoxDecoration(
-          gradient: isWindows
-              ? null
-              : LinearGradient(
+          gradient: vis.imageAsset == null
+              ? LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [fallback, fallbackLight],
-                ),
+                  colors: [vis.colorPrimary, fallbackLight],
+                )
+              : null,
         ),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Fondo con logo SOLO para Windows
-            if (isWindows)
-              Image.asset(
-                'assets/images/iconos/windows.png',
-                fit: BoxFit.cover,
-              ),
+            if (vis.imageAsset != null)
+              Image.asset(vis.imageAsset!, fit: BoxFit.cover),
 
-            // Velo para mejorar contraste del anillo/porcentaje
-            if (isWindows)
+            if (vis.imageAsset != null)
               Container(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white.withOpacity(.10),
-                      Colors.white.withOpacity(.05),
+                      Colors.white.withValues(alpha: .10),
+                      Colors.white.withValues(alpha: .05),
                     ],
                   ),
                 ),
               ),
 
-            // Anillo + porcentaje centrado
             Center(
               child: SizedBox(
                 width: 86,
@@ -617,20 +601,16 @@ class _CardTopHeader extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Pista
                     CircularProgressIndicator(
                       value: 1,
                       strokeWidth: 10,
-                      color: Colors.white.withOpacity(.28),
+                      color: Colors.white.withValues(alpha: .28),
                       backgroundColor: Colors.transparent,
                     ),
-                    // Progreso
                     CircularProgressIndicator(
                       value: percent / 100,
                       strokeWidth: 10,
-                      color: isWindows
-                          ? Colors.white
-                          : Colors.white.withOpacity(.95),
+                      color: Colors.white,
                       backgroundColor: Colors.transparent,
                     ),
                     Text(
@@ -650,19 +630,9 @@ class _CardTopHeader extends StatelessWidget {
       ),
     );
   }
-
-  // Copiamos tu helper para colores de tema (mismo que en _ModuleCard)
-  Color _themeColor(String? theme) {
-    switch ((theme ?? '').toLowerCase()) {
-      case 'blue':   return const Color(0xFF2D6AE0);
-      case 'green':  return const Color(0xFF2BAA58);
-      case 'orange': return const Color(0xFFE97129);
-      case 'purple': return const Color(0xFF6D40D8);
-      default:       return const Color(0xFF4B5B7A);
-    }
-  }
 }
 
+// =================== Skeleton / Empty ===================
 
 class _SkeletonGrid extends StatelessWidget {
   const _SkeletonGrid();

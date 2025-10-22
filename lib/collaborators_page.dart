@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:ticademy/auth_service.dart';
 
 class CollaboratorsPage extends StatefulWidget {
   const CollaboratorsPage({super.key});
@@ -15,15 +14,14 @@ class CollaboratorsPage extends StatefulWidget {
 }
 
 class _CollaboratorsPageState extends State<CollaboratorsPage>
-  with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final _db = FirebaseDatabase.instance;
   final _auth = FirebaseAuth.instance;
 
-    Future<void> _logout() async {
+  Future<void> _logout() async {
     try {
       await _auth.signOut();
       if (!mounted) return;
-      // Redirige a tu pantalla de login / landing y limpia el stack
       Navigator.of(context).pushNamedAndRemoveUntil(
         '/', // TODO: cambia por tu ruta de login, p.ej. LoginPage.routeName
         (route) => false,
@@ -47,7 +45,7 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
   // Sección activa para el editor de Quizz:
   String? _activeSectionId;
 
-  // ---- helpers comunes (como en tu HTML) ----
+  // ---- helpers comunes ----
   List<String> _objectToArray(dynamic obj) {
     if (obj == null || obj is! Map) return [];
     return obj.values.map((e) => e.toString()).toList();
@@ -117,7 +115,6 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
         _activeModuleId = (preferId != null && data.containsKey(preferId))
             ? preferId
             : sortedIds.first;
-        // cuando cambie módulo, limpia selección de sección para quizz
         _activeSectionId = null;
       }
     });
@@ -313,31 +310,6 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                       icon: const Icon(Icons.refresh),
                       label: const Text('Recargar'),
                     ),
-                    const SizedBox(width: 8),
-                    if (_activeModuleId != null)
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final confirm = await _confirm(
-                            context,
-                            '¿Eliminar módulo "$_activeModuleId" y su contenido?',
-                          );
-                          if (confirm) {
-                            await _db
-                                .ref('learningModules/$_activeModuleId')
-                                .remove();
-                            await _loadModules();
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Módulo eliminado'),
-                                ),
-                              );
-                            }
-                          }
-                        },
-                        icon: const Icon(Icons.delete_outline),
-                        label: const Text('Eliminar módulo'),
-                      ),
                   ],
                 ),
               ],
@@ -527,37 +499,6 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
               },
             ),
           ),
-          const SizedBox(height: 12),
-          _card(
-            _CreateModuleForm(
-              onCreate: (id, title, order, level, hours, desc) async {
-                final moduleId = _sanitizeId(id);
-                if (moduleId.isEmpty) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('ID inválido')));
-                  return;
-                }
-                final payload = {
-                  'title': title.isEmpty ? '(Sin título)' : title,
-                  'description': desc,
-                  'level': level,
-                  'estimatedHours': hours,
-                  'order': order,
-                  'module_status': 'borrador',
-                  'createdAt': ServerValue.timestamp,
-                  'updatedAt': ServerValue.timestamp,
-                };
-                await _db.ref('learningModules/$moduleId').set(payload);
-                await _loadModules(preferId: moduleId);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Módulo creado')),
-                  );
-                }
-              },
-            ),
-          ),
         ],
       ),
     );
@@ -693,7 +634,6 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
     BuildContext context,
     String? sectionId,
   ) async {
-    // Navega a un editor en pantalla completa (bottom sheet o page).
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => _SectionEditorPage(
@@ -701,7 +641,6 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
           sectionId: sectionId, // null => nueva
           onSaved: () async {
             await _loadModules(preferId: _activeModuleId);
-            // sincroniza pestaña de Quizz con la sección recién editada/creada
             setState(() {
               _activeSectionId = sectionId;
             });
@@ -732,7 +671,6 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
         return ao.compareTo(bo);
       });
 
-    // si no hay selección, elige la primera para facilitar
     final selSecId =
         _activeSectionId ?? (secIds.isNotEmpty ? secIds.first : null);
 
@@ -762,8 +700,20 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                       for (final id in secIds)
                         DropdownMenuItem(
                           value: id,
-                          child: Text(
-                            '${sections[id]?['title'] ?? id}  (${sections[id]?['contentType'] ?? '-'})',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.description_outlined, size: 18),
+                              const SizedBox(width: 6),
+                              SizedBox(
+                                width: 200, // ajusta según tu diseño
+                                child: Text(
+                                  '${sections[id]?['title'] ?? id} (${sections[id]?['contentType'] ?? '-'})',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                     ],
@@ -772,6 +722,7 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
                       labelText: 'Selecciona una sección',
                       border: OutlineInputBorder(),
                     ),
+                    isExpanded: true, // evita el overflow del menú
                   ),
               ],
             ),
@@ -780,6 +731,7 @@ class _CollaboratorsPageState extends State<CollaboratorsPage>
           if (selSecId != null)
             _card(
               _QuizEditor(
+                key: ValueKey(selSecId),
                 moduleId: _activeModuleId!,
                 sectionId: selSecId,
                 section: Map<String, dynamic>.from(sections[selSecId] as Map),
@@ -935,171 +887,6 @@ class _ModuleTagsEditorState extends State<_ModuleTagsEditor> {
   }
 }
 
-// --- Crear nuevo módulo ---
-class _CreateModuleForm extends StatefulWidget {
-  const _CreateModuleForm({required this.onCreate});
-  final Future<void> Function(
-    String id,
-    String title,
-    int order,
-    String level,
-    int hours,
-    String desc,
-  )
-  onCreate;
-
-  @override
-  State<_CreateModuleForm> createState() => _CreateModuleFormState();
-}
-
-class _CreateModuleFormState extends State<_CreateModuleForm> {
-  final idCtl = TextEditingController();
-  final titleCtl = TextEditingController();
-  final orderCtl = TextEditingController(text: '1');
-  final levelCtl = ValueNotifier<String>('basico');
-  final hoursCtl = TextEditingController(text: '6');
-  final descCtl = TextEditingController();
-
-  @override
-  void dispose() {
-    idCtl.dispose();
-    titleCtl.dispose();
-    orderCtl.dispose();
-    levelCtl.dispose();
-    hoursCtl.dispose();
-    descCtl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Crear nuevo módulo',
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: idCtl,
-                decoration: const InputDecoration(
-                  labelText: 'Identificador (único)',
-                  hintText: 'windows_basics',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: titleCtl,
-                decoration: const InputDecoration(
-                  labelText: 'Título',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ValueListenableBuilder(
-                valueListenable: levelCtl,
-                builder: (_, value, __) => DropdownButtonFormField<String>(
-                  value: value,
-                  items: const [
-                    DropdownMenuItem(value: 'basico', child: Text('Básico')),
-                    DropdownMenuItem(
-                      value: 'intermedio',
-                      child: Text('Intermedio'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'avanzado',
-                      child: Text('Avanzado'),
-                    ),
-                  ],
-                  onChanged: (v) => levelCtl.value = v ?? 'basico',
-                  decoration: const InputDecoration(
-                    labelText: 'Nivel',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: orderCtl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Orden',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: TextField(
-                controller: hoursCtl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Horas',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          maxLines: 3,
-          controller: descCtl,
-          decoration: const InputDecoration(
-            labelText: 'Descripción',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: ElevatedButton.icon(
-            onPressed: () async {
-              await widget.onCreate(
-                idCtl.text.trim(),
-                titleCtl.text.trim(),
-                int.tryParse(orderCtl.text.trim()) ?? 1,
-                levelCtl.value,
-                int.tryParse(hoursCtl.text.trim()) ?? 0,
-                descCtl.text.trim(),
-              );
-              if (!mounted) return;
-              idCtl.clear();
-              titleCtl.clear();
-              orderCtl.text = '1';
-              levelCtl.value = 'basico';
-              hoursCtl.text = '6';
-              descCtl.clear();
-            },
-            icon: const Icon(Icons.add_circle_outline),
-            label: const Text('Crear módulo'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // --- Launcher del editor de sección ---
 class _SectionEditorLauncher extends StatelessWidget {
   const _SectionEditorLauncher({
@@ -1194,7 +981,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
   Future<void> _load() async {
     try {
       if (widget.sectionId == null) {
-        // nueva sección → sin cargar nada
         return;
       }
 
@@ -1206,13 +992,12 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
       _editingId = widget.sectionId;
 
       if (!snap.exists || snap.value is! Map) {
-        // no hay datos de la sección, igual deja salir del loading y muestra vacío editable
         return;
       }
 
       final s = Map<String, dynamic>.from(snap.value as Map);
 
-      // ---- campos simples (siempre con toString seguro) ----
+      // campos simples
       titleCtl.text = (s['title'] ?? '').toString();
       objCtl.text = (s['objective'] ?? '').toString();
       bodyCtl.text = (s['body'] ?? '').toString();
@@ -1221,7 +1006,7 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
       orderCtl.text = ((s['order'] ?? 1).toString());
       secStatus = (s['sec_status'] ?? 'borrador').toString();
 
-      // ---- colecciones (solo si son Map; si no, listas vacías) ----
+      // colecciones
       secTags
         ..clear()
         ..addAll(
@@ -1254,7 +1039,7 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
               : const Iterable<String>.empty(),
         );
 
-      // ---- actividades ----
+      // actividades
       activities.clear();
       if (s['activities'] is Map) {
         final acts = Map<String, dynamic>.from(s['activities'] as Map);
@@ -1279,7 +1064,7 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
         }
       }
 
-      // ---- recurso único ----
+      // recurso único
       final res = s['resources'];
       if (res is Map) {
         resType = (res['type'] ?? 'pdf').toString();
@@ -1291,7 +1076,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
         resUrlCtl.clear();
       }
     } catch (e) {
-      // Opcional: muestra un aviso, pero no bloquees la UI
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('No se pudo cargar la sección: $e')),
@@ -1324,16 +1108,15 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
   }
 
   Future<void> _save() async {
+    // Guarda **SECCIÓN** (no el quizz)
     final moduleRef = _db.ref('learningModules/${widget.moduleId}');
     final moduleSnap = await moduleRef.get();
     if (!moduleSnap.exists) return;
 
     final data = Map<String, dynamic>.from(moduleSnap.value as Map);
     final secs = (data['sections'] as Map?)?.cast<String, dynamic>() ?? {};
-
     final secId = _editingId ?? _nextSectionId(secs);
 
-    // payload
     final payload = <String, dynamic>{
       'title': titleCtl.text.trim(),
       'objective': objCtl.text.trim(),
@@ -1343,6 +1126,18 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
       'sec_status': secStatus,
       'body': bodyCtl.text.trim(),
     };
+    if (activities.isNotEmpty) {
+      final actsObj = _activitiesToObj(activities);
+      if (actsObj.isNotEmpty) {
+        payload['activities'] = actsObj;
+      } else {
+        // si todas quedaron vacías, elimina el nodo para mantener limpio
+        payload['activities'] = null;
+      }
+    } else {
+      // si no hay ninguna activity en UI, elimina el nodo en DB
+      payload['activities'] = null;
+    }
 
     if (secTags.isNotEmpty) payload['tags'] = _toObj(secTags, 'sec_tag');
     if (expectedLearning.isNotEmpty) {
@@ -1354,7 +1149,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
     if (checkpoints.isNotEmpty) {
       payload['checkpoints'] = _toObj(checkpoints, 'chkpnt');
     }
-
     if (resTitleCtl.text.trim().isNotEmpty ||
         resUrlCtl.text.trim().isNotEmpty) {
       payload['resources'] = {
@@ -1386,6 +1180,30 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
     return o;
   }
 
+  Map<String, dynamic> _activitiesToObj(List<_ActivityModel> list) {
+    final out = <String, dynamic>{};
+    for (var i = 0; i < list.length; i++) {
+      final act = list[i];
+      // Limpia vacíos
+      final stepsClean = act.steps
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+
+      // steps -> step_01, step_02, ...
+      final stepsObj = <String, dynamic>{};
+      for (var j = 0; j < stepsClean.length; j++) {
+        stepsObj['step_${(j + 1).toString().padLeft(2, '0')}'] = stepsClean[j];
+      }
+
+      out['act_${(i + 1).toString().padLeft(2, '0')}'] = {
+        'title': (act.title.trim().isEmpty ? 'Actividad' : act.title.trim()),
+        if (stepsObj.isNotEmpty) 'steps': stepsObj,
+      };
+    }
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1407,7 +1225,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Datos generales
                   _block(
                     title: 'Datos generales',
                     child: Column(
@@ -1529,7 +1346,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Tags / Expected / Checklist / Checkpoints
                   _block(
                     title: 'Etiquetas',
                     child: _EditableChips(
@@ -1568,7 +1384,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Actividades
                   _block(
                     title: 'Actividades',
                     child: Column(
@@ -1598,7 +1413,6 @@ class _SectionEditorPageState extends State<_SectionEditorPage> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Recurso
                   _block(
                     title: 'Recurso único',
                     child: Column(
@@ -1947,6 +1761,7 @@ class _ActivityEditorState extends State<_ActivityEditor> {
 // --- Editor de Quizz (para una sección) ---
 class _QuizEditor extends StatefulWidget {
   const _QuizEditor({
+    super.key,
     required this.moduleId,
     required this.sectionId,
     required this.section,
@@ -1972,6 +1787,7 @@ class _QuizEditorState extends State<_QuizEditor> {
   bool shuffle = true;
 
   final List<_QuestionModel> questions = [];
+  final List<GlobalKey<_QuestionEditorState>> _qKeys = [];
 
   @override
   void initState() {
@@ -1988,12 +1804,16 @@ class _QuizEditorState extends State<_QuizEditor> {
     shuffle = (qz['shuffleOptions'] == true);
 
     questions.clear();
+    _qKeys.clear();
+
     final qs = (qz['questions'] as Map?)?.cast<String, dynamic>() ?? {};
     final entries = qs.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
     for (final e in entries) {
       final q = Map<String, dynamic>.from(e.value as Map);
       questions.add(_QuestionModel.fromMap(q));
+      _qKeys.add(GlobalKey<_QuestionEditorState>());
     }
+
     setState(() {});
   }
 
@@ -2006,6 +1826,11 @@ class _QuizEditorState extends State<_QuizEditor> {
   }
 
   Future<void> _save() async {
+    // 💾 asegura que cada editor vuelque su estado al modelo
+    for (final k in _qKeys) {
+      k.currentState?.commit();
+    }
+
     final qs = <String, dynamic>{};
     for (var i = 0; i < questions.length; i++) {
       qs['q${i + 1}'] = questions[i].toMap();
@@ -2097,18 +1922,32 @@ class _QuizEditorState extends State<_QuizEditor> {
         const SizedBox(height: 8),
         for (var i = 0; i < questions.length; i++)
           _QuestionEditor(
-            key: ValueKey('q$i'),
+            key: _qKeys[i], // ✅ solo una key
             model: questions[i],
-            onRemove: () => setState(() => questions.removeAt(i)),
+            onRemove: () => setState(() {
+              questions.removeAt(i);
+              _qKeys.removeAt(i);
+            }),
           ),
         const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => setState(
-                  () => questions.add(_QuestionModel(type: 'opcion_multiple')),
-                ),
+                onPressed: () => setState(() {
+                  questions.add(
+                    _QuestionModel(
+                      type: 'opcion_multiple',
+                      options: {
+                        'option_0': '',
+                        'option_1': '',
+                        'option_2': '',
+                        'option_3': '',
+                      },
+                    ),
+                  );
+                  _qKeys.add(GlobalKey<_QuestionEditorState>()); // ✅ agrega key
+                }),
                 icon: const Icon(Icons.add),
                 label: const Text(
                   'Agregar pregunta',
@@ -2121,7 +1960,7 @@ class _QuizEditorState extends State<_QuizEditor> {
                   padding: const EdgeInsets.symmetric(
                     vertical: 6,
                     horizontal: 12,
-                  ), // 👈 padding interno
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -2188,6 +2027,15 @@ class _QuestionModel {
         answerText: ans,
         explanation: explanation,
       );
+    } else if (type == 'vf') {
+      final co = (m['correctOption'] ?? 'option_0').toString();
+      return _QuestionModel(
+        type: 'vf',
+        prompt: prompt,
+        options: const {'option_0': 'Verdadero', 'option_1': 'Falso'},
+        correctOption: co,
+        explanation: explanation,
+      );
     } else {
       final opts = (m['options'] as Map?)?.cast<String, dynamic>() ?? {};
       final map = <String, String>{};
@@ -2196,9 +2044,11 @@ class _QuestionModel {
       }
       final co = (m['correctOption'] ?? 'option_0').toString();
       return _QuestionModel(
-        type: type,
+        type: 'opcion_multiple',
         prompt: prompt,
-        options: map,
+        options: map.isEmpty
+            ? {'option_0': '', 'option_1': '', 'option_2': '', 'option_3': ''}
+            : map,
         correctOption: co,
         explanation: explanation,
       );
@@ -2227,7 +2077,9 @@ class _QuestionModel {
         if (explanation.trim().isNotEmpty) 'explanation': explanation.trim(),
       };
     } else {
-      final opts = options ?? {'option_0': '', 'option_1': ''};
+      final opts =
+          options ??
+          {'option_0': '', 'option_1': '', 'option_2': '', 'option_3': ''};
       return {
         'type': 'opcion_multiple',
         'prompt': prompt,
@@ -2245,6 +2097,7 @@ class _QuestionEditor extends StatefulWidget {
     required this.model,
     required this.onRemove,
   });
+
   final _QuestionModel model;
   final VoidCallback onRemove;
 
@@ -2253,38 +2106,65 @@ class _QuestionEditor extends StatefulWidget {
 }
 
 class _QuestionEditorState extends State<_QuestionEditor> {
+  // estado visible
   late String t;
+  String correct = 'option_0';
+
+  // controllers (solo aquí)
   final promptCtl = TextEditingController();
   final explCtl = TextEditingController();
-
-  // opción múltiple
   final optA = TextEditingController();
   final optB = TextEditingController();
   final optC = TextEditingController();
   final optD = TextEditingController();
-  String correct = 'option_0';
-
-  // completar
   final ansCtl = TextEditingController();
+
+  // El Quiz llamará a este método vía GlobalKey para volcar la UI -> modelo
+  void commit() {
+    _persistBack();
+  }
 
   @override
   void initState() {
     super.initState();
-    t = widget.model.type;
-    promptCtl.text = widget.model.prompt;
-    explCtl.text = widget.model.explanation;
+    _syncFromModel(widget.model);
+  }
+
+  @override
+  void didUpdateWidget(covariant _QuestionEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.model != widget.model) {
+      _syncFromModel(widget.model);
+    }
+  }
+
+  void _syncFromModel(_QuestionModel m) {
+    t = m.type;
+    promptCtl.text = m.prompt;
+    explCtl.text = m.explanation;
 
     if (t == 'completar') {
-      ansCtl.text = widget.model.answerText;
+      ansCtl.text = m.answerText;
+      correct = 'option_0';
+      optA.clear();
+      optB.clear();
+      optC.clear();
+      optD.clear();
     } else if (t == 'vf') {
-      correct = widget.model.correctOption;
+      ansCtl.clear();
+      correct = m.correctOption;
+      optA.text = 'Verdadero';
+      optB.text = 'Falso';
+      optC.clear();
+      optD.clear();
     } else {
-      final opts = widget.model.options ?? {};
+      final opts = m.options ?? {'option_0': '', 'option_1': ''};
       optA.text = opts['option_0'] ?? '';
       optB.text = opts['option_1'] ?? '';
       optC.text = opts['option_2'] ?? '';
       optD.text = opts['option_3'] ?? '';
-      correct = widget.model.correctOption;
+      correct = m.correctOption;
+      ansCtl.clear();
     }
   }
 
@@ -2304,6 +2184,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     widget.model.type = t;
     widget.model.prompt = promptCtl.text.trim();
     widget.model.explanation = explCtl.text.trim();
+
     if (t == 'completar') {
       widget.model.answerText = ansCtl.text.trim();
       widget.model.options = {'option_0': ansCtl.text.trim()};
@@ -2311,6 +2192,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
     } else if (t == 'vf') {
       widget.model.options = {'option_0': 'Verdadero', 'option_1': 'Falso'};
       widget.model.correctOption = correct;
+      widget.model.answerText = '';
     } else {
       widget.model.options = {
         'option_0': optA.text.trim(),
@@ -2319,7 +2201,41 @@ class _QuestionEditorState extends State<_QuestionEditor> {
         'option_3': optD.text.trim(),
       };
       widget.model.correctOption = correct;
+      widget.model.answerText = '';
     }
+  }
+
+  void _changeType(String newType) {
+    setState(() {
+      t = newType;
+
+      if (t == 'vf') {
+        optA.text = 'Verdadero';
+        optB.text = 'Falso';
+        optC.clear();
+        optD.clear();
+        ansCtl.clear();
+        correct = 'option_0';
+      } else if (t == 'completar') {
+        optA.clear();
+        optB.clear();
+        optC.clear();
+        optD.clear();
+        correct = 'option_0';
+      } else {
+        ansCtl.clear();
+        if (![
+          'option_0',
+          'option_1',
+          'option_2',
+          'option_3',
+        ].contains(correct)) {
+          correct = 'option_0';
+        }
+      }
+
+      _persistBack();
+    });
   }
 
   @override
@@ -2350,9 +2266,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                       child: Text('completar'),
                     ),
                   ],
-                  onChanged: (v) => setState(() {
-                    t = v ?? 'opcion_multiple';
-                  }),
+                  onChanged: (v) => _changeType(v ?? 'opcion_multiple'),
                   decoration: const InputDecoration(
                     labelText: 'Tipo',
                     border: OutlineInputBorder(),
@@ -2373,15 +2287,18 @@ class _QuestionEditorState extends State<_QuestionEditor> {
           TextField(
             maxLines: 5,
             controller: promptCtl,
+            onChanged: (_) => _persistBack(),
             decoration: const InputDecoration(
               labelText: 'Enunciado',
               border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 8),
+
           if (t == 'completar') ...[
             TextField(
               controller: ansCtl,
+              onChanged: (_) => _persistBack(),
               decoration: const InputDecoration(
                 labelText: 'Respuesta correcta',
                 border: OutlineInputBorder(),
@@ -2394,7 +2311,12 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                 DropdownMenuItem(value: 'option_0', child: Text('Verdadero')),
                 DropdownMenuItem(value: 'option_1', child: Text('Falso')),
               ],
-              onChanged: (v) => setState(() => correct = v ?? 'option_0'),
+              onChanged: (v) {
+                setState(() {
+                  correct = v ?? 'option_0';
+                  _persistBack();
+                });
+              },
               decoration: const InputDecoration(
                 labelText: 'Respuesta correcta',
                 border: OutlineInputBorder(),
@@ -2403,6 +2325,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
           ] else ...[
             TextField(
               controller: optA,
+              onChanged: (_) => _persistBack(),
               decoration: const InputDecoration(
                 labelText: 'Opción A',
                 border: OutlineInputBorder(),
@@ -2411,6 +2334,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
             const SizedBox(height: 6),
             TextField(
               controller: optB,
+              onChanged: (_) => _persistBack(),
               decoration: const InputDecoration(
                 labelText: 'Opción B',
                 border: OutlineInputBorder(),
@@ -2419,6 +2343,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
             const SizedBox(height: 6),
             TextField(
               controller: optC,
+              onChanged: (_) => _persistBack(),
               decoration: const InputDecoration(
                 labelText: 'Opción C',
                 border: OutlineInputBorder(),
@@ -2427,6 +2352,7 @@ class _QuestionEditorState extends State<_QuestionEditor> {
             const SizedBox(height: 6),
             TextField(
               controller: optD,
+              onChanged: (_) => _persistBack(),
               decoration: const InputDecoration(
                 labelText: 'Opción D (opcional)',
                 border: OutlineInputBorder(),
@@ -2441,34 +2367,27 @@ class _QuestionEditorState extends State<_QuestionEditor> {
                 DropdownMenuItem(value: 'option_2', child: Text('Correcta: C')),
                 DropdownMenuItem(value: 'option_3', child: Text('Correcta: D')),
               ],
-              onChanged: (v) => setState(() => correct = v ?? 'option_0'),
+              onChanged: (v) {
+                setState(() {
+                  correct = v ?? 'option_0';
+                  _persistBack();
+                });
+              },
               decoration: const InputDecoration(
                 labelText: 'Correcta',
                 border: OutlineInputBorder(),
               ),
             ),
           ],
+
           const SizedBox(height: 8),
           TextField(
             maxLines: 5,
             controller: explCtl,
+            onChanged: (_) => _persistBack(),
             decoration: const InputDecoration(
               labelText: 'Explicación (opcional)',
               border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () {
-                _persistBack();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Pregunta actualizada')),
-                );
-              },
-              icon: const Icon(Icons.check),
-              label: const Text('Aplicar'),
             ),
           ),
         ],

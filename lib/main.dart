@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:ticademy/collaborators_page.dart';
 import 'package:ticademy/friends_page.dart';
@@ -11,6 +11,7 @@ import './register_page.dart';
 import './welcome_page.dart';
 import 'module_page.dart';
 import 'user_profile_page.dart';
+import 'achievements_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,8 +41,9 @@ class MyApp extends StatelessWidget {
         '/app': (context) => const AppIndexPage(),
         '/friends': (context) => const FriendsPage(),
         '/module': (context) => const ModulePage(),
-        CollaboratorsPage.routeName: (_) => const CollaboratorsPage(),
-        TeachersPage.routeName: (_) => const TeachersPage(),
+        AchievementsPage.routeName: (context) => const AchievementsPage(),
+        '/colaborators': (context) => const CollaboratorsPage(),
+        '/teachers': (context) => const TeachersPage(),
       },
     );
   }

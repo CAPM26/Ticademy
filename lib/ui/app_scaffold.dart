@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:ticademy/auth_service.dart';
-import 'package:ticademy/presence_service.dart';
 import 'package:ticademy/welcome_page.dart';
 import 'package:ticademy/collaborators_page.dart';
 
-enum AppTab { home, modules, friends, profile }
+enum AppTab { home, achievements, friends, profile }
 
 class AppScaffold extends StatelessWidget {
   const AppScaffold({
@@ -56,9 +55,8 @@ class AppScaffold extends StatelessWidget {
       case AppTab.home:
         Navigator.pushReplacementNamed(context, '/app');
         break;
-      case AppTab.modules:
-        // Puedes ir a una vista de módulos o anclar a una sección de /app
-        Navigator.pushReplacementNamed(context, '/app');
+      case AppTab.achievements:
+        Navigator.pushReplacementNamed(context, '/achievements');
         break;
       case AppTab.friends:
         Navigator.pushReplacementNamed(context, '/friends');
@@ -132,7 +130,7 @@ class _AppTopBar extends StatelessWidget implements PreferredSizeWidget {
 }
 
 class _TopMenuButton extends StatelessWidget {
-  const _TopMenuButton({super.key});
+  const _TopMenuButton();
 
   Future<bool> _isCollaborator() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -291,7 +289,7 @@ class _AppBottomNav extends StatelessWidget {
     switch (currentTab) {
       case AppTab.home:
         return 0;
-      case AppTab.modules:
+      case AppTab.achievements:
         return 1;
       case AppTab.friends:
         return 2;
@@ -312,9 +310,9 @@ class _AppBottomNav extends StatelessWidget {
           label: 'Home',
         ),
         NavigationDestination(
-          icon: Icon(Icons.view_module_outlined),
-          selectedIcon: Icon(Icons.view_module),
-          label: 'Modules',
+          icon: Icon(Icons.emoji_events_outlined),
+          selectedIcon: Icon(Icons.emoji_events),
+          label: 'Logros',
         ),
         NavigationDestination(
           icon: Icon(Icons.group_outlined),

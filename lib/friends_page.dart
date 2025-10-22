@@ -21,7 +21,6 @@ class _FriendsPageState extends State<FriendsPage> {
   final _inviteCtrl = TextEditingController();
   final Set<String> _removing = {};
 
-
   FriendsView _view = FriendsView.friends;
 
   // Amigos
@@ -234,13 +233,12 @@ class _FriendsPageState extends State<FriendsPage> {
     });
   }
 
-
   void _attachClassroomListeners(String uid) {
     _classroomsSub?.cancel();
     _classroomsSub = _db.ref('classrooms').onValue.listen((event) {
       final value = event.snapshot.value;
       final map = value is Map
-          ? Map<String, dynamic>.from(value as Map)
+          ? Map<String, dynamic>.from(value)
           : <String, dynamic>{};
       if (!mounted) return;
       setState(() {
@@ -254,7 +252,7 @@ class _FriendsPageState extends State<FriendsPage> {
     _classMembersSub = _db.ref('classroomMembers').onValue.listen((event) {
       final value = event.snapshot.value;
       final map = value is Map
-          ? Map<String, dynamic>.from(value as Map)
+          ? Map<String, dynamic>.from(value)
           : <String, dynamic>{};
       if (!mounted) return;
       setState(() {
@@ -267,7 +265,7 @@ class _FriendsPageState extends State<FriendsPage> {
     _classInvitesSub = _db.ref('classroomInvites').onValue.listen((event) {
       final value = event.snapshot.value;
       final map = value is Map
-          ? Map<String, dynamic>.from(value as Map)
+          ? Map<String, dynamic>.from(value)
           : <String, dynamic>{};
       if (!mounted) return;
       setState(() {
@@ -290,11 +288,13 @@ class _FriendsPageState extends State<FriendsPage> {
     final classes = <_ClassMembershipVM>[];
     _classMembersMap.forEach((classId, rawMembers) {
       if (rawMembers is Map && rawMembers.containsKey(uid)) {
-        final members = Map<String, dynamic>.from(rawMembers as Map);
-        final classInfo =
-            _classrooms[classId] is Map ? Map<String, dynamic>.from(_classrooms[classId] as Map) : <String, dynamic>{};
-        final joinInfo =
-            members[uid] is Map ? Map<String, dynamic>.from(members[uid] as Map) : <String, dynamic>{};
+        final members = Map<String, dynamic>.from(rawMembers);
+        final classInfo = _classrooms[classId] is Map
+            ? Map<String, dynamic>.from(_classrooms[classId] as Map)
+            : <String, dynamic>{};
+        final joinInfo = members[uid] is Map
+            ? Map<String, dynamic>.from(members[uid] as Map)
+            : <String, dynamic>{};
         classes.add(
           _ClassMembershipVM(
             classId: classId,
@@ -312,12 +312,16 @@ class _FriendsPageState extends State<FriendsPage> {
     setState(() {
       _classMemberships = classes;
       if (_selectedClassId != null &&
-          !_classMemberships.any((membership) => membership.classId == _selectedClassId)) {
+          !_classMemberships.any(
+            (membership) => membership.classId == _selectedClassId,
+          )) {
         _selectedClassId = classes.isNotEmpty ? classes.first.classId : null;
       } else if (_selectedClassId == null && classes.isNotEmpty) {
         _selectedClassId = classes.first.classId;
       }
-      _classesMessage = classes.isEmpty ? 'Aun no perteneces a ninguna aula.' : '';
+      _classesMessage = classes.isEmpty
+          ? 'Aun no perteneces a ninguna aula.'
+          : '';
     });
   }
 
@@ -327,7 +331,7 @@ class _FriendsPageState extends State<FriendsPage> {
     final invites = <_ClassInviteVM>[];
     _classInvitesMap.forEach((code, raw) {
       if (raw is! Map) return;
-      final map = Map<String, dynamic>.from(raw as Map);
+      final map = Map<String, dynamic>.from(raw);
       final status = (map['status'] ?? 'pending').toString();
       if (status != 'pending') return;
       final classId = (map['classId'] ?? '').toString();
@@ -335,11 +339,13 @@ class _FriendsPageState extends State<FriendsPage> {
       final inviteEmail = (map['email'] ?? '').toString().toLowerCase();
       final targetUid = (map['uid'] ?? map['targetUid'] ?? '').toString();
       final sanitizedInviteEmail = _sanitizeEmailKey(inviteEmail);
-      final matchesEmail = emailKey.isNotEmpty && sanitizedInviteEmail == emailKey;
+      final matchesEmail =
+          emailKey.isNotEmpty && sanitizedInviteEmail == emailKey;
       final matchesUid = uid.isNotEmpty && targetUid == uid;
       if (!matchesEmail && !matchesUid) return;
-      final classInfo =
-          _classrooms[classId] is Map ? Map<String, dynamic>.from(_classrooms[classId] as Map) : <String, dynamic>{};
+      final classInfo = _classrooms[classId] is Map
+          ? Map<String, dynamic>.from(_classrooms[classId] as Map)
+          : <String, dynamic>{};
       invites.add(
         _ClassInviteVM(
           code: code.toString(),
@@ -351,7 +357,9 @@ class _FriendsPageState extends State<FriendsPage> {
         ),
       );
     });
-    invites.sort((a, b) => (b.createdAtNum ?? 0).compareTo(a.createdAtNum ?? 0));
+    invites.sort(
+      (a, b) => (b.createdAtNum ?? 0).compareTo(a.createdAtNum ?? 0),
+    );
     if (!mounted) return;
     setState(() {
       _classInvites = invites;
@@ -561,59 +569,58 @@ class _FriendsPageState extends State<FriendsPage> {
   }
 
   Future<void> _askRemoveFriend(_FriendVM friend) async {
-  if (!mounted) return;
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: const Text('Eliminar amigo'),
-      content: Text(
-        '¿Seguro que quieres eliminar a "${friend.name.isNotEmpty ? friend.name : friend.id}" de tu lista de amigos?\n\n'
-        'No hay penalización: podréis enviar o recibir solicitudes de nuevo cuando quieran.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('Cancelar'),
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar amigo'),
+        content: Text(
+          '¿Seguro que quieres eliminar a "${friend.name.isNotEmpty ? friend.name : friend.id}" de tu lista de amigos?\n\n'
+          'No hay penalización: podréis enviar o recibir solicitudes de nuevo cuando quieran.',
         ),
-        FilledButton(
-          onPressed: () => Navigator.of(ctx).pop(true),
-          style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFFEF4444),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
           ),
-          child: const Text('Eliminar'),
-        ),
-      ],
-    ),
-  );
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+            ),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
 
-  if (ok == true) {
-    await _removeFriend(friend);
-  }
-}
-
-Future<void> _removeFriend(_FriendVM friend) async {
-  final me = _auth.currentUser?.uid;
-  if (me == null) {
-    _snack('Debes iniciar sesión.');
-    return;
-  }
-  setState(() => _removing.add(friend.id));
-  try {
-    // Borra relación en ambos sentidos
-    await _db.ref('friends/$me/${friend.id}').remove();
-    await _db.ref('friends/${friend.id}/$me').remove();
-
-    // El listener de friends se encargará de refrescar la lista y cancelar los subs
-    _snack('Amigo eliminado.');
-  } catch (_) {
-    _snack('No se pudo eliminar. Intenta de nuevo.');
-  } finally {
-    if (mounted) {
-      setState(() => _removing.remove(friend.id));
+    if (ok == true) {
+      await _removeFriend(friend);
     }
   }
-}
 
+  Future<void> _removeFriend(_FriendVM friend) async {
+    final me = _auth.currentUser?.uid;
+    if (me == null) {
+      _snack('Debes iniciar sesión.');
+      return;
+    }
+    setState(() => _removing.add(friend.id));
+    try {
+      // Borra relación en ambos sentidos
+      await _db.ref('friends/$me/${friend.id}').remove();
+      await _db.ref('friends/${friend.id}/$me').remove();
+
+      // El listener de friends se encargará de refrescar la lista y cancelar los subs
+      _snack('Amigo eliminado.');
+    } catch (_) {
+      _snack('No se pudo eliminar. Intenta de nuevo.');
+    } finally {
+      if (mounted) {
+        setState(() => _removing.remove(friend.id));
+      }
+    }
+  }
 
   void _snack(String msg) {
     if (!mounted) return;
@@ -684,20 +691,26 @@ Future<void> _removeFriend(_FriendVM friend) async {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _toggleChip(
-                label: 'Mis amigos',
-                active: _view == FriendsView.friends,
-                onTap: () => setState(() => _view = FriendsView.friends),
+              Expanded(
+                child: _toggleChip(
+                  label: 'Amigos',
+                  active: _view == FriendsView.friends,
+                  onTap: () => setState(() => _view = FriendsView.friends),
+                ),
               ),
-              _toggleChip(
-                label: 'Invitaciones',
-                active: _view == FriendsView.invites,
-                onTap: () => setState(() => _view = FriendsView.invites),
+              Expanded(
+                child: _toggleChip(
+                  label: 'Invita-\nciones',
+                  active: _view == FriendsView.invites,
+                  onTap: () => setState(() => _view = FriendsView.invites),
+                ),
               ),
-              _toggleChip(
-                label: "Aulas",
-                active: _view == FriendsView.classes,
-                onTap: () => setState(() => _view = FriendsView.classes),
+              Expanded(
+                child: _toggleChip(
+                  label: "Aulas",
+                  active: _view == FriendsView.classes,
+                  onTap: () => setState(() => _view = FriendsView.classes),
+                ),
               ),
             ],
           ),
@@ -797,20 +810,66 @@ Future<void> _removeFriend(_FriendVM friend) async {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // El nombre de la clase ya está en negrita, lo mantenemos igual.
           Text(
             membership.name.isNotEmpty ? membership.name : membership.classId,
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
-          Text('ID: ${membership.classId}'),
-          const SizedBox(height: 4),
-          Text(
-            'Propietario: ${membership.ownerUid.isEmpty ? '-' : membership.ownerUid}',
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(
+                  text: 'ID del Docente: ',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(
+                  text: membership.ownerUid.isEmpty ? '-' : membership.ownerUid,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
-          Text('Creación: $created • Integrantes: ${membership.memberCount}'),
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(
+                  text: 'Creación: ',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(
+                  text:
+                      created, // Asegúrate de que 'created' ya esté como String
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 4),
-          Text('Te uniste: $joined'),
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(
+                  text: 'Integrantes: ',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(text: '${membership.memberCount}'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(
+                  text: 'Te uniste: ',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(
+                  text: joined, // Asegúrate de que 'joined' ya esté como String
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -860,136 +919,154 @@ Future<void> _removeFriend(_FriendVM friend) async {
     );
   }
 
-Widget _friendTile(_FriendVM f) {
-  final dotColor = f.online ? const Color(0xFF22C55E) : const Color(0xFF94A3B8);
-  final meta = f.online ? 'En línea' : _relative(f.lastAccess);
+  Widget _friendTile(_FriendVM f) {
+    final dotColor = f.online
+        ? const Color(0xFF22C55E)
+        : const Color(0xFF94A3B8);
+    final meta = f.online ? 'En línea' : _relative(f.lastAccess);
 
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFFE8ECF6)), // más sutil
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // Avatar
-        _avatar(photoUrl: f.photoUrl, name: f.name),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8ECF6)), // más sutil
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Avatar
+          _avatar(photoUrl: f.photoUrl, name: f.name),
 
-        const SizedBox(width: 12),
+          const SizedBox(width: 12),
 
-        // Nombre + estado (ocupa todo el ancho disponible)
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Nombre
-              Text(
-                f.name.isNotEmpty ? f.name : (f.email.isNotEmpty ? f.email : f.id),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1D2536),
-                ),
-              ),
-              const SizedBox(height: 4),
-              // Estado
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+          // Nombre + estado (ocupa todo el ancho disponible)
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Nombre
+                Text(
+                  f.name.isNotEmpty
+                      ? f.name
+                      : (f.email.isNotEmpty ? f.email : f.id),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1D2536),
                   ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      meta,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Color(0xFF6B7280),
-                        fontSize: 13,
-                        height: 1.1,
+                ),
+                const SizedBox(height: 4),
+                // Estado
+                Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: dotColor,
+                        shape: BoxShape.circle,
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        meta,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontSize: 13,
+                          height: 1.1,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          // Acciones compactas
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // Botón "Ver perfil" compacto
+              OutlinedButton(
+                onPressed: () {
+                  Navigator.of(
+                    context,
+                  ).pushNamed(UserProfilePage.routeName, arguments: f.id);
+                },
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                ],
+                  side: const BorderSide(color: Color(0xFFE5E7EB)),
+                  foregroundColor: const Color(0xFF4C5FD7),
+                  textStyle: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('Ver perfil'),
+              ),
+              const SizedBox(height: 4),
+              // Menú de opciones (eliminar)
+              SizedBox(
+                height: 36,
+                width: 36,
+                child: PopupMenuButton<String>(
+                  enabled: !_removing.contains(f.id),
+                  tooltip: 'Opciones',
+                  padding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onSelected: (value) {
+                    if (value == 'delete') _askRemoveFriend(f);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: Text(
+                        'Eliminar amigo',
+                        style: TextStyle(
+                          color: Color(0xFFEF4444),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                  icon: _removing.contains(f.id)
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(
+                          Icons.more_vert_rounded,
+                          size: 20,
+                          color: Color(0xFF6B7280),
+                        ),
+                ),
               ),
             ],
           ),
-        ),
-
-        const SizedBox(width: 12),
-
-        // Acciones compactas
-        Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            // Botón "Ver perfil" compacto
-            OutlinedButton(
-              onPressed: () {
-                Navigator.of(context).pushNamed(
-                  UserProfilePage.routeName,
-                  arguments: f.id,
-                );
-              },
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                side: const BorderSide(color: Color(0xFFE5E7EB)),
-                foregroundColor: const Color(0xFF4C5FD7),
-                textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                visualDensity: VisualDensity.compact,
-              ),
-              child: const Text('Ver perfil'),
-            ),
-            const SizedBox(height: 4),
-            // Menú de opciones (eliminar)
-            SizedBox(
-              height: 36,
-              width: 36,
-              child: PopupMenuButton<String>(
-                enabled: !_removing.contains(f.id),
-                tooltip: 'Opciones',
-                padding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                onSelected: (value) {
-                  if (value == 'delete') _askRemoveFriend(f);
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text(
-                      'Eliminar amigo',
-                      style: TextStyle(
-                        color: Color(0xFFEF4444),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-                icon: _removing.contains(f.id)
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.more_vert_rounded, size: 20, color: Color(0xFF6B7280)),
-              ),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
-}
-
-
+        ],
+      ),
+    );
+  }
 
   // ======== INVITES PANEL ========
 
@@ -1000,10 +1077,17 @@ Widget _friendTile(_FriendVM f) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _panelHead('Aulas', 'Revisa las aulas en las que participas y responde a las invitaciones.'),
+          _panelHead(
+            'Aulas',
+            'Revisa las aulas en las que participas y responde a las invitaciones.',
+          ),
           const SizedBox(height: 12),
           if (_classMemberships.isEmpty)
-            _empty(_classesMessage.isNotEmpty ? _classesMessage : 'Aun no perteneces a ninguna aula.'),
+            _empty(
+              _classesMessage.isNotEmpty
+                  ? _classesMessage
+                  : 'Aun no perteneces a ninguna aula.',
+            ),
           if (_classMemberships.isNotEmpty)
             Column(
               children: [
@@ -1019,8 +1103,7 @@ Widget _friendTile(_FriendVM f) {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
-          if (_classInvites.isEmpty)
-            _empty('No tienes invitaciones a aulas.'),
+          if (_classInvites.isEmpty) _empty('No tienes invitaciones a aulas.'),
           if (_classInvites.isNotEmpty)
             Column(
               children: [
@@ -1425,7 +1508,11 @@ Widget _friendTile(_FriendVM f) {
 
   String _sanitizeEmailKey(String email) {
     if (email.isEmpty) return '';
-    return email.trim().toLowerCase().replaceAll('.', ',').replaceAll(RegExp(r'[^\w@+\-]'), '_');
+    return email
+        .trim()
+        .toLowerCase()
+        .replaceAll('.', ',')
+        .replaceAll(RegExp(r'[^\w@+\-]'), '_');
   }
 }
 
@@ -1450,13 +1537,13 @@ class _FriendVM {
   });
 
   _FriendVM copyWith({bool? online, dynamic lastAccess}) => _FriendVM(
-        id: id,
-        name: name,
-        email: email,
-        photoUrl: photoUrl,
-        lastAccess: lastAccess ?? this.lastAccess,
-        online: online ?? this.online,
-      );
+    id: id,
+    name: name,
+    email: email,
+    photoUrl: photoUrl,
+    lastAccess: lastAccess ?? this.lastAccess,
+    online: online ?? this.online,
+  );
 }
 
 enum _InviteKind { incoming, outgoing }
@@ -1497,12 +1584,12 @@ class _InviteLookup {
   String get nameOrId => name.isNotEmpty ? name : userId;
 
   _InviteLookup copyWith({bool? canSend, String? reason}) => _InviteLookup(
-        userId: userId,
-        name: name,
-        email: email,
-        canSend: canSend ?? this.canSend,
-        reason: reason ?? this.reason,
-      );
+    userId: userId,
+    name: name,
+    email: email,
+    canSend: canSend ?? this.canSend,
+    reason: reason ?? this.reason,
+  );
 }
 
 enum _InviteTone { muted, success, info, error }
@@ -1542,9 +1629,7 @@ class _ClassInviteVM {
   final String email;
   final dynamic createdAt;
 
-  int? get createdAtNum =>
-      createdAt is int ? createdAt as int : int.tryParse(createdAt?.toString() ?? '');
+  int? get createdAtNum => createdAt is int
+      ? createdAt as int
+      : int.tryParse(createdAt?.toString() ?? '');
 }
-
-
-

@@ -2,8 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:ticademy/ui/app_scaffold.dart';
 import 'package:ticademy/app_index_page.dart';
+import 'package:ticademy/progress_service.dart';
+import 'package:ticademy/ui/app_scaffold.dart';
+import 'package:ticademy/widgets/profile_badges.dart';
 import 'package:flutter/services.dart'; // <-- para copiar al portapapeles
 
 
@@ -36,6 +38,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
   Map<String, dynamic> _profile = {};
   Map<String, dynamic> _progress = {};
   Map<String, dynamic> _stats = {};
+  Map<String, dynamic> _achievements = {};
   String? _photoUrl;
 
   // Amistad
@@ -171,6 +174,11 @@ class _UserProfilePageState extends State<UserProfilePage> {
             final progress =
                 (m['progress'] as Map?)?.cast<String, dynamic>() ?? {};
             final stats = (m['stats'] as Map?)?.cast<String, dynamic>() ?? {};
+            final achievements =
+                (m['achievements'] as Map?)?.cast<String, dynamic>() ?? {};
+            if (progress.containsKey('points')) {
+              stats['points'] = progress['points'];
+            }
 
             // --- FIX: resolver foto correctamente según sea propio u otro perfil ---
             final String? dbUrl = (profile['photoURL'] as String?)?.trim();
@@ -200,10 +208,12 @@ class _UserProfilePageState extends State<UserProfilePage> {
             }
             // ----------------------------------------------------------------------
 
+            if (!mounted) return;
             setState(() {
               _profile = profile;
               _progress = progress;
               _stats = stats;
+              _achievements = achievements;
               _photoUrl = resolvedPhoto; // <-- ahora correcto
               _loading = false;
 
@@ -337,7 +347,8 @@ class _UserProfilePageState extends State<UserProfilePage> {
                   await _usersRef.child(user.uid).update({
                     'profile/displayName': newName,
                   });
-                  if (mounted) Navigator.of(ctx).pop(true);
+                  if (!mounted) return;
+                  Navigator.of(context).pop(true);
                 } catch (e) {
                   setLocal(() {
                     saving = false;
@@ -428,7 +439,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         );
       },
     ).then((saved) {
-      if (saved == true) {
+      if (saved == true && mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Nombre actualizado correctamente.')),
@@ -532,9 +543,31 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final email = _resolvedEmail();
     final role = _resolvedRole();
     final plan = (_progress['currentModuleId'] ?? 'windows_basics').toString();
-    final streakDays = (_progress['streakDays'] ?? 0).toString();
-    final overall = (_progress['overallPercent'] ?? 0).toString();
-    final points = (_stats['points'] ?? 0).toString();
+    final alias = (_profile['alias'] ?? (_achievements['highestAlias'] ?? 'Tic-Novato'))
+        .toString();
+    final overallValue = _progress['overallPercent'];
+    final overall = overallValue is num
+        ? overallValue.toStringAsFixed(1)
+        : overallValue.toString();
+    final pointsValue = _progress['points'] ?? _stats['points'] ?? 0;
+    final points = pointsValue is num
+        ? pointsValue.toInt().toString()
+        : pointsValue.toString();
+    final badgesMap =
+        (_achievements['badges'] as Map?)?.cast<String, dynamic>() ?? {};
+    final earnedBadges = badgeThresholds
+        .where((threshold) => badgesMap.containsKey(threshold.alias))
+        .map(
+          (threshold) {
+            final raw = badgesMap[threshold.alias];
+            final earnedAt = raw is Map ? raw['earnedAt'] : null;
+            return BadgeInfo(
+              name: threshold.alias,
+              earnedAtLabel: _formatDate(earnedAt) ?? 'Sin fecha',
+            );
+          },
+        )
+        .toList();
 
     if (_snack != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -557,12 +590,9 @@ class _UserProfilePageState extends State<UserProfilePage> {
               (_) => false,
             );
             break;
-          case AppTab.modules:
+          case AppTab.achievements:
             if (!mounted) return;
-            await Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => const AppIndexPage()),
-              (_) => false,
-            );
+            await Navigator.of(context).pushNamed('/achievements');
             break;
           case AppTab.friends:
             if (!mounted) return;
@@ -591,22 +621,18 @@ class _UserProfilePageState extends State<UserProfilePage> {
                       headerRole: role,
                       headerRoleIcon: _roleIcon(role),
                       displayName: displayName,
+                      alias: alias,
                       photoUrl: _photoUrl,
                       initials: _initials(displayName),
                       chips: [
                         _ProfileChip(
-                          icon: Icons.local_fire_department_rounded,
-                          label: 'Racha',
-                          value: '$streakDays dias',
-                        ),
-                        _ProfileChip(
                           icon: Icons.bolt_rounded,
-                          label: 'XP total',
+                          label: 'Puntos',
                           value: points,
                         ),
                         _ProfileChip(
                           icon: Icons.check_circle_outline_rounded,
-                          label: 'Progreso',
+                          label: 'Progreso global',
                           value: '$overall%',
                         ),
                       ],
@@ -618,6 +644,29 @@ class _UserProfilePageState extends State<UserProfilePage> {
                           ? _sendFriendRequest
                           : null,
                     ),
+                    if (earnedBadges.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Insignias obtenidas',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final badge in earnedBadges) ...[
+                              BadgePill(info: badge),
+                              const SizedBox(width: 12),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 18),
                     _detailsCard(
                       userId: _targetUserId ?? '-',
@@ -647,7 +696,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
         borderRadius: BorderRadius.circular(26),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 18,
             offset: const Offset(0, 12),
           ),
@@ -730,6 +779,7 @@ class _ProfileOverviewCard extends StatelessWidget {
     required this.headerRole,
     required this.headerRoleIcon,
     required this.displayName,
+    required this.alias,
     required this.photoUrl,
     required this.initials,
     required this.chips,
@@ -747,6 +797,7 @@ class _ProfileOverviewCard extends StatelessWidget {
   final IconData headerRoleIcon;
 
   final String displayName;
+  final String alias;
   final String? photoUrl;
   final String initials;
 
@@ -773,7 +824,7 @@ class _ProfileOverviewCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF5564F2).withOpacity(0.28),
+            color: const Color(0xFF5564F2).withValues(alpha: 0.28),
             blurRadius: 28,
             offset: const Offset(0, 18),
           ),
@@ -861,6 +912,15 @@ class _ProfileOverviewCard extends StatelessWidget {
                         color: Colors.white,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      alias,
+                      style: const TextStyle(
+                        color: Color(0xFFD1D5F6),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     if (onEditPressed != null)
                       FilledButton.tonalIcon(
@@ -868,7 +928,7 @@ class _ProfileOverviewCard extends StatelessWidget {
                         icon: const Icon(Icons.edit_outlined),
                         label: const Text('Editar nombre'),
                         style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white.withOpacity(0.16),
+                          backgroundColor: Colors.white.withValues(alpha: 0.16),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -907,8 +967,8 @@ class _Avatar extends StatelessWidget {
       height: 72,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Colors.white.withOpacity(0.22),
-        border: Border.all(color: Colors.white.withOpacity(0.35), width: 2),
+        color: Colors.white.withValues(alpha: 0.22),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.35), width: 2),
       ),
       child: ClipOval(
         child: (photoUrl != null && photoUrl!.isNotEmpty)
@@ -930,7 +990,7 @@ class _Initials extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: Colors.white.withOpacity(0.15),
+      color: Colors.white.withValues(alpha: 0.15),
       alignment: Alignment.center,
       child: Text(
         initials,
@@ -960,9 +1020,9 @@ class _ProfileChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.12),
+        color: Colors.white.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.2)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

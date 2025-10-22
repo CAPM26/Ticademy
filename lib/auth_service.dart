@@ -35,47 +35,61 @@ class AuthService {
     );
   }
 
-  Future<UserCredential> signInWithGoogle() async {
-    try {
-      if (await _googleSignIn.isSignedIn()) {
-        await _googleSignIn.disconnect().catchError((_) {});
-        await _googleSignIn.signOut().catchError((_) {});
-      }
+Future<UserCredential> signInWithGoogle() async {
+  try {
+    // Asegúrate de limpiar cualquier sesión previa
+    await _googleSignIn.signOut().catchError((_) {});
+    await _googleSignIn.disconnect().catchError((_) {});
 
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        throw FirebaseAuthException(
-          code: 'ERROR_ABORTED_BY_USER',
-          message: 'Inicio de sesión cancelado por el usuario',
-        );
-      }
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-      return await firebaseAuth.signInWithCredential(credential);
-    } on FirebaseAuthException {
-      rethrow;
-    } catch (error) {
+    // Inicia sesión con Google
+    final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) {
       throw FirebaseAuthException(
-        code: 'ERROR_GOOGLE_SIGN_IN',
-        message: 'Ocurrió un error al intentar iniciar sesión con Google: $error',
+        code: 'ERROR_ABORTED_BY_USER',
+        message: 'Inicio de sesión cancelado por el usuario',
       );
     }
-  }
 
-  Future<void> signOut() async {
-    await firebaseAuth.signOut();
-    try {
-      if (await _googleSignIn.isSignedIn()) {
-        await _googleSignIn.disconnect();
-        await _googleSignIn.signOut();
-      }
-    } catch (_) {}
+    final GoogleSignInAuthentication googleAuth =
+        await googleUser.authentication;
+
+    // Credencial de Firebase
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    // Inicia sesión en Firebase
+    return await firebaseAuth.signInWithCredential(credential);
+  } on FirebaseAuthException catch (e) {
+    debugPrint('FirebaseAuthException: ${e.code} - ${e.message}');
+    rethrow;
+  } catch (error) {
+    debugPrint('Error en signInWithGoogle: $error');
+    throw FirebaseAuthException(
+      code: 'ERROR_GOOGLE_SIGN_IN',
+      message: 'Ocurrió un error al intentar iniciar sesión con Google: $error',
+    );
   }
+}
+
+
+Future<void> signOut() async {
+  try {
+    // Cierra Firebase primero
+    await firebaseAuth.signOut();
+
+    // Luego cierra la sesión de Google (si aplica)
+    final isSigned = await _googleSignIn.isSignedIn();
+    if (isSigned) {
+      await _googleSignIn.disconnect().catchError((_) {});
+      await _googleSignIn.signOut().catchError((_) {});
+    }
+  } catch (e) {
+    debugPrint('Error al cerrar sesión: $e');
+  }
+}
+
 
   Future<void> resetPassword({required String email}) {
     return firebaseAuth.sendPasswordResetEmail(email: email);

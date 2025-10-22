@@ -1,9 +1,19 @@
-// lib/teachers_page.dart
+﻿// lib/teachers_page.dart
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:csv/csv.dart';
+import 'package:excel/excel.dart' as xls;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:ticademy/auth_service.dart';
 
 class TeachersPage extends StatefulWidget {
@@ -138,12 +148,17 @@ class _TeachersPageState extends State<TeachersPage>
               return bo.compareTo(ao);
             });
           final selected = _selectedClassId;
+          final nextSelected = (selected != null && map.containsKey(selected))
+              ? selected
+              : (sortedIds.isEmpty ? null : sortedIds.first);
           setState(() {
             _ownedClasses = map;
-            _selectedClassId =
-                (selected != null && map.containsKey(selected)) ? selected : (sortedIds.isEmpty ? null : sortedIds.first);
+            _selectedClassId = nextSelected;
           });
-          _attachClassDetailListeners();
+          _attachClassDetailListeners(nextSelected);
+          if (nextSelected != null) {
+            _loadReport(nextSelected);
+          }
         } else {
           setState(() {
             _ownedClasses = {};
@@ -165,8 +180,8 @@ class _TeachersPageState extends State<TeachersPage>
     }
   }
 
-  void _attachClassDetailListeners() {
-    final classId = _selectedClassId;
+  void _attachClassDetailListeners([String? classIdOverride]) {
+    final classId = classIdOverride ?? _selectedClassId;
     if (classId == null) {
       _membersSub?.cancel();
       _invitesSub?.cancel();
@@ -178,11 +193,31 @@ class _TeachersPageState extends State<TeachersPage>
     }
 
     _membersSub?.cancel();
-    _membersSub = _db.ref('classroomMembers/$classId').onValue.listen((event) {
+    _membersSub = _db.ref('classroomMembers/$classId').onValue.listen((event) async {
       final value = event.snapshot.value;
       if (!mounted) return;
       if (value is Map) {
-        setState(() => _currentMembers = Map<String, dynamic>.from(value));
+        final entries = value.entries
+            .where((e) => e.value is Map)
+            .map((e) => MapEntry(e.key.toString(), Map<String, dynamic>.from(e.value as Map)))
+            .toList();
+        final enriched = <String, dynamic>{};
+        for (final entry in entries) {
+          final profileSnap = await _db.ref('users/${entry.key}/profile').get();
+          final data = Map<String, dynamic>.from(entry.value);
+          if (profileSnap.exists) {
+            final profile = profileSnap.value as Map?;
+            if (profile != null) {
+              data['displayName'] = profile['displayName']?.toString() ?? data['displayName'];
+              data['email'] = profile['email']?.toString() ?? data['email'];
+            } else {
+              data['displayName'] = profileSnap.child('displayName').value?.toString() ?? data['displayName'];
+              data['email'] = profileSnap.child('email').value?.toString() ?? data['email'];
+            }
+          }
+          enriched[entry.key] = data;
+        }
+        setState(() => _currentMembers = enriched);
       } else {
         setState(() => _currentMembers = {});
       }
@@ -363,15 +398,25 @@ class _TeachersPageState extends State<TeachersPage>
         final profileSnap = await _db.ref('users/$uid/profile').get();
         final progressSnap = await _db.ref('users/$uid/progress').get();
         final statsSnap = await _db.ref('users/$uid/stats').get();
+
+        final points = _readPoints(progressSnap, statsSnap);
+        final alias = (profileSnap.child('alias').value ?? '').toString();
+        final currentModule = (progressSnap.child('currentModuleId').value ?? '-').toString();
+        final currentSection = (progressSnap.child('currentSectionId').value ?? '-').toString();
+        final totalQuizzesFinished = _readTotalQuizzesFinished(progressSnap);
+
         rows.add(
           _ReportRow(
             uid: uid,
             name: (profileSnap.child('displayName').value ?? uid).toString(),
             email: (profileSnap.child('email').value ?? '').toString(),
-            points: (statsSnap.child('points').value ?? 0).toString(),
+            alias: alias,
+            points: points.toString(),
             percent: (progressSnap.child('overallPercent').value ?? 0).toString(),
             lastAccess: progressSnap.child('lastAccess').value,
-            currentModule: (progressSnap.child('currentModuleId').value ?? '-').toString(),
+            currentModule: currentModule,
+            currentSection: currentSection,
+            totalQuizzesFinished: totalQuizzesFinished,
           ),
         );
       }
@@ -696,7 +741,11 @@ class _TeachersPageState extends State<TeachersPage>
                               data['name']?.toString() ?? id,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            onPressed: () => setState(() => _selectedClassId = id),
+                            onPressed: () {
+                              setState(() => _selectedClassId = id);
+                              _attachClassDetailListeners(id);
+                              _loadReport(id);
+                            },
                             onDeleted: () => _deleteClass(id),
                             deleteIconColor: Colors.red,
                           );
@@ -741,6 +790,8 @@ class _TeachersPageState extends State<TeachersPage>
               children: members.map((entry) {
                 final uid = entry.key;
                 final data = Map<String, dynamic>.from(entry.value as Map);
+                final displayName = data['displayName']?.toString().trim();
+                final email = data['email']?.toString().trim();
                 return Card(
                   elevation: 0,
                   margin: const EdgeInsets.symmetric(vertical: 6),
@@ -751,8 +802,29 @@ class _TeachersPageState extends State<TeachersPage>
                   child: ListTile(
                     dense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    title: Text(uid, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('Rol: ${data['role'] ?? '-'} · Ingreso: ${_formatDate(data['joinedAt'])}'),
+                    title: Text(
+                      displayName != null && displayName.isNotEmpty
+                          ? displayName
+                          : (email != null && email.isNotEmpty ? email : uid),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          email != null && email.isNotEmpty ? email : '(sin correo)',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          'Rol: ${data['role'] ?? '-'} · Ingreso: ${_formatDate(data['joinedAt'])}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          'ID: $uid',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                     trailing: IconButton(
                       icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
                       onPressed: () => _db.ref('classroomMembers/$_selectedClassId/$uid').remove(),
@@ -861,7 +933,52 @@ class _TeachersPageState extends State<TeachersPage>
                         ),
                       )
                       .toList(),
-                  onChanged: (value) => setState(() => _selectedClassId = value),
+                  onChanged: (value) {
+                    setState(() => _selectedClassId = value);
+                    if (value != null) {
+                      _attachClassDetailListeners(value);
+                      _loadReport(value);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              _panel(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _reportRows.isEmpty ? null : _exportCSV,
+                      icon: const Icon(Icons.table_rows),
+                      label: const Text('Exportar CSV'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _reportRows.isEmpty ? null : _downloadCSV,
+                      icon: const Icon(Icons.download),
+                      label: const Text('Guardar CSV'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _reportRows.isEmpty ? null : _exportExcel,
+                      icon: const Icon(Icons.grid_on),
+                      label: const Text('Exportar \nExcel'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _reportRows.isEmpty ? null : _downloadExcel,
+                      icon: const Icon(Icons.download),
+                      label: const Text('Guardar \nExcel'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _reportRows.isEmpty ? null : _exportPDF,
+                      icon: const Icon(Icons.picture_as_pdf),
+                      label: const Text('Exportar PDF'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _reportRows.isEmpty ? null : _downloadPDF,
+                      icon: const Icon(Icons.download),
+                      label: const Text('Guardar PDF'),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -893,22 +1010,28 @@ class _TeachersPageState extends State<TeachersPage>
       child: DataTable(
         columns: const [
           DataColumn(label: Text('Alumno')),
+          DataColumn(label: Text('Alias')),
           DataColumn(label: Text('Correo')),
           DataColumn(label: Text('Puntos')),
           DataColumn(label: Text('Progreso')),
           DataColumn(label: Text('Último acceso')),
           DataColumn(label: Text('Módulo actual')),
+          DataColumn(label: Text('Sección actual')),
+          DataColumn(label: Text('Quizzes terminados')),
         ],
         rows: _reportRows
             .map(
               (row) => DataRow(
                 cells: [
                   DataCell(Text(row.name)),
+                  DataCell(Text(row.alias.isEmpty ? '-' : row.alias)),
                   DataCell(Text(row.email.isEmpty ? '-' : row.email)),
                   DataCell(Text(row.points)),
                   DataCell(Text('${row.percent}%')),
                   DataCell(Text(_formatDate(row.lastAccess))),
                   DataCell(Text(row.currentModule)),
+                  DataCell(Text(row.currentSection.isEmpty ? '-' : row.currentSection)),
+                  DataCell(Text(row.totalQuizzesFinished.toString())),
                 ],
               ),
             )
@@ -934,16 +1057,314 @@ class _TeachersPageState extends State<TeachersPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 6),
+                Text('Alias: ${row.alias.isEmpty ? '-' : row.alias}'),
                 Text('Correo: ${row.email.isEmpty ? '-' : row.email}'),
                 Text('Puntos: ${row.points} · Progreso: ${row.percent}%'),
                 Text('Último acceso: ${_formatDate(row.lastAccess)}'),
                 Text('Módulo actual: ${row.currentModule}'),
+                Text('Sección actual: ${row.currentSection.isEmpty ? '-' : row.currentSection}'),
+                Text('Quizzes terminados: ${row.totalQuizzesFinished}'),
               ],
             ),
           ),
         );
       }).toList(),
     );
+  }
+
+  // ====================== REPORT EXPORTS ======================
+
+  List<List<String>> _reportAsRows() {
+    final rows = <List<String>>[
+      [
+        'Alumno',
+        'Alias',
+        'Correo',
+        'Puntos',
+        'Progreso',
+        'Último acceso',
+        'Módulo actual',
+        'Sección actual',
+        'Quizzes terminados',
+      ],
+    ];
+    for (final r in _reportRows) {
+      rows.add([
+        r.name,
+        r.alias.isEmpty ? '-' : r.alias,
+        r.email.isEmpty ? '-' : r.email,
+        r.points,
+        '${r.percent}%',
+        _formatDate(r.lastAccess),
+        r.currentModule,
+        r.currentSection.isEmpty ? '-' : r.currentSection,
+        r.totalQuizzesFinished.toString(),
+      ]);
+    }
+    return rows;
+  }
+
+  String _reportFileNameBase() => 'reporte_${_selectedClassId ?? 'aula'}';
+
+  Future<void> _exportCSV() async {
+    try {
+      final csv = const ListToCsvConverter().convert(_reportAsRows());
+      final file = await _saveTextToAppDocs(csv, '${_reportFileNameBase()}.csv');
+      await Share.shareXFiles([
+        XFile(
+          file.path,
+          mimeType: 'text/csv',
+          name: '${_reportFileNameBase()}.csv',
+        ),
+      ]);
+    } catch (e) {
+      _snack('No se pudo exportar CSV: $e');
+    }
+  }
+
+  Future<void> _downloadCSV() async {
+    try {
+      final csv = const ListToCsvConverter().convert(_reportAsRows());
+      final tempFile = await _saveTextToAppDocs(
+        csv,
+        '${_reportFileNameBase()}.csv',
+        notify: false,
+      );
+      final params = SaveFileDialogParams(
+        sourceFilePath: tempFile.path,
+        fileName: '${_reportFileNameBase()}.csv',
+      );
+      final savedPath = await FlutterFileDialog.saveFile(params: params);
+      if (savedPath != null) {
+        _snack('CSV guardado en: $savedPath');
+      }
+    } catch (e) {
+      _snack('No se pudo guardar CSV: $e');
+    }
+  }
+
+  Future<void> _exportExcel() async {
+    try {
+      final excel = xls.Excel.createExcel();
+      final sheet = excel['Reporte'];
+      for (final row in _reportAsRows()) {
+        sheet.appendRow(row.map((value) => xls.TextCellValue(value)).toList());
+      }
+      final bytes = excel.encode();
+      if (bytes == null) throw 'encode() retornó null';
+      final file = await _saveBytesToAppDocs(
+        Uint8List.fromList(bytes),
+        '${_reportFileNameBase()}.xlsx',
+      );
+      await Share.shareXFiles([
+        XFile(
+          file.path,
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          name: '${_reportFileNameBase()}.xlsx',
+        ),
+      ]);
+    } catch (e) {
+      _snack('No se pudo exportar Excel: $e');
+    }
+  }
+
+  Future<void> _downloadExcel() async {
+    try {
+      final excel = xls.Excel.createExcel();
+      final sheet = excel['Reporte'];
+      for (final row in _reportAsRows()) {
+        sheet.appendRow(row.map((value) => xls.TextCellValue(value)).toList());
+      }
+      final bytes = excel.encode();
+      if (bytes == null) throw 'encode() retornó null';
+      final tempFile = await _saveBytesToAppDocs(
+        Uint8List.fromList(bytes),
+        '${_reportFileNameBase()}.xlsx',
+        notify: false,
+      );
+      final params = SaveFileDialogParams(
+        sourceFilePath: tempFile.path,
+        fileName: '${_reportFileNameBase()}.xlsx',
+      );
+      final savedPath = await FlutterFileDialog.saveFile(params: params);
+      if (savedPath != null) {
+        _snack('Excel guardado en: $savedPath');
+      }
+    } catch (e) {
+      _snack('No se pudo guardar Excel: $e');
+    }
+  }
+
+  Future<void> _exportPDF() async {
+    try {
+      final file = await _saveBytesToAppDocs(
+        await _buildPdfBytes(),
+        '${_reportFileNameBase()}.pdf',
+      );
+      await Share.shareXFiles([
+        XFile(
+          file.path,
+          mimeType: 'application/pdf',
+          name: '${_reportFileNameBase()}.pdf',
+        ),
+      ]);
+    } catch (e) {
+      _snack('No se pudo exportar PDF: $e');
+    }
+  }
+
+  Future<void> _downloadPDF() async {
+    try {
+      final tempFile = await _saveBytesToAppDocs(
+        await _buildPdfBytes(),
+        '${_reportFileNameBase()}.pdf',
+        notify: false,
+      );
+      final params = SaveFileDialogParams(
+        sourceFilePath: tempFile.path,
+        fileName: '${_reportFileNameBase()}.pdf',
+      );
+      final savedPath = await FlutterFileDialog.saveFile(params: params);
+      if (savedPath != null) {
+        _snack('PDF guardado en: $savedPath');
+      }
+    } catch (e) {
+      _snack('No se pudo guardar PDF: $e');
+    }
+  }
+
+  Future<Uint8List> _buildPdfBytes() async {
+    final pdf = pw.Document();
+    final headers = [
+      'Alumno',
+      'Alias',
+      'Correo',
+      'Puntos',
+      'Progreso',
+      'Último acceso',
+      'Módulo actual',
+      'Sección actual',
+      'Quizzes terminados',
+    ];
+    final data = _reportRows
+        .map((r) => [
+              r.name,
+              r.alias.isEmpty ? '-' : r.alias,
+              r.email.isEmpty ? '-' : r.email,
+              r.points,
+              '${r.percent}%',
+              _formatDate(r.lastAccess),
+              r.currentModule,
+              r.currentSection.isEmpty ? '-' : r.currentSection,
+              r.totalQuizzesFinished.toString(),
+            ])
+        .toList();
+
+    const rowsPerPage = 20;
+    if (data.isEmpty) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (context) => pw.Text('Sin datos'),
+        ),
+      );
+    } else {
+      for (var i = 0; i < data.length; i += rowsPerPage) {
+        final slice = data.sublist(i, i + rowsPerPage > data.length ? data.length : i + rowsPerPage);
+        pdf.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4.landscape,
+            margin: const pw.EdgeInsets.all(24),
+            build: (context) {
+              return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                children: [
+                  pw.Text(
+                    'Reporte de aula: ${_ownedClasses[_selectedClassId]?['name'] ?? _selectedClassId ?? ''}',
+                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.SizedBox(height: 6),
+                  pw.Text('Generado: ${DateTime.now()}'),
+                  pw.SizedBox(height: 12),
+                  pw.TableHelper.fromTextArray(
+                    headers: headers,
+                    data: slice,
+                    headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                    headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFEFEFEF)),
+                    cellAlignment: pw.Alignment.centerLeft,
+                    cellStyle: const pw.TextStyle(fontSize: 10),
+                    headerAlignment: pw.Alignment.centerLeft,
+                    border: null,
+                    cellPadding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                  ),
+                  pw.Spacer(),
+                  pw.Align(
+                    alignment: pw.Alignment.centerRight,
+                    child: pw.Text(
+                      'Página ${(i ~/ rowsPerPage) + 1} / ${((data.length - 1) ~/ rowsPerPage) + 1}',
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      }
+    }
+    return Uint8List.fromList(await pdf.save());
+  }
+
+  Future<File> _saveTextToAppDocs(
+    String content,
+    String fileName, {
+    Encoding encoding = utf8,
+    bool notify = true,
+  }) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/$fileName');
+    await file.writeAsString(content, encoding: encoding);
+    if (notify && mounted) {
+      _snack('$fileName guardado en: ${dir.path}');
+    }
+    return file;
+  }
+
+  Future<File> _saveBytesToAppDocs(
+    Uint8List bytes,
+    String fileName, {
+    bool notify = true,
+  }) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final file = File('${dir.path}/$fileName');
+    await file.writeAsBytes(bytes, flush: true);
+    if (notify && mounted) {
+      _snack('$fileName guardado en: ${dir.path}');
+    }
+    return file;
+  }
+
+  int _readPoints(DataSnapshot progressSnap, DataSnapshot statsSnap) {
+    final progressPoints = progressSnap.child('points').value;
+    if (progressPoints != null) return _toInt(progressPoints);
+    final statsPoints = statsSnap.child('points').value;
+    return _toInt(statsPoints);
+  }
+
+  int _readTotalQuizzesFinished(DataSnapshot progressSnap) {
+    // Soporta tanto "TotalQuizzesFinished" (mayúscula inicial) como "totalQuizzesFinished"
+    final v1 = progressSnap.child('TotalQuizzesFinished').value;
+    if (v1 != null) return _toInt(v1);
+    final v2 = progressSnap.child('totalQuizzesFinished').value;
+    if (v2 != null) return _toInt(v2);
+    return 0;
+  }
+
+  int _toInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
   }
 
   // ====================== HELPERS ======================
@@ -1069,17 +1490,23 @@ class _ReportRow {
     required this.uid,
     required this.name,
     required this.email,
+    required this.alias,
     required this.points,
     required this.percent,
     required this.lastAccess,
     required this.currentModule,
+    required this.currentSection,
+    required this.totalQuizzesFinished,
   });
 
   final String uid;
   final String name;
   final String email;
+  final String alias;
   final String points;
   final String percent;
   final dynamic lastAccess;
   final String currentModule;
+  final String currentSection;
+  final int totalQuizzesFinished;
 }
